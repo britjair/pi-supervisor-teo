@@ -24,6 +24,8 @@ export interface HumanIO {
   /** Вывести текст (с переводом строки в конце). */
   print(text: string): void;
   close(): void;
+  /** Свой экран вопроса (Ink); без него — общий диалог из select/multiline/confirm. */
+  askQuestion?(question: QuestionView): Promise<HumanAnswer>;
   reporter?(taskKey: string): EngineReporter;
   waitControl?(): WaitControl;
 }

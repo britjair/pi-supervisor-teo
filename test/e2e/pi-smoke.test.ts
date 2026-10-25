@@ -10,10 +10,14 @@ import { runCli, runProcess, sandbox } from "../helpers/tmp.js";
 const enabled = process.env.SDLC_E2E === "1";
 
 describe.skipIf(!enabled)("Pi e2e", () => {
-  it("discover → execute → done: агент создаёт файл, supervisor подтверждает коммит", async () => {
+  // Две Policy с разными этапами, агентами и файлами — один и тот же dist/cli.js (критерии 3 и 17)
+  it.each([
+    { fixture: "discover-execute-done", terminal: "done", file: "NOTES.md" },
+    { fixture: "sketch-deliver-shipped", terminal: "shipped", file: "HELLO.md" },
+  ])("$fixture: агент создаёт $file, supervisor подтверждает коммит", async ({ fixture, terminal, file }) => {
     const auth = process.env.PI_CODING_AGENT_DIR;
     if (!auth) throw new Error("Для e2e укажите PI_CODING_AGENT_DIR на временную копию каталога Pi.");
-    const policy = await readFile(path.join(validDir, "discover-execute-done.md"));
+    const policy = await readFile(path.join(validDir, `${fixture}.md`));
     const sb = await sandbox(policy);
     await runProcess("git", ["config", "user.name", "SDLC Test"], sb.project);
     await runProcess("git", ["config", "user.email", "sdlc-test@example.invalid"], sb.project);
@@ -22,7 +26,7 @@ describe.skipIf(!enabled)("Pi e2e", () => {
     expect(doctor.stdout).toContain("✓ Pi SDK 1.4.0 загружается");
     const result = await new Promise<{ code: number | null }>((resolve) => {
       execFile(process.execPath, [cliPath, "new", "T-1", "--title", "Тест", "--description", "Выполни этапы Policy", "--plain"],
-        { cwd: sb.project, timeout: 50_000, killSignal: "SIGKILL", maxBuffer: 4_000_000, env: { ...process.env, HOME: sb.home, PI_CODING_AGENT_DIR: auth, NO_COLOR: "1" } },
+        { cwd: sb.project, timeout: 80_000, killSignal: "SIGKILL", maxBuffer: 4_000_000, env: { ...process.env, HOME: sb.home, PI_CODING_AGENT_DIR: auth, NO_COLOR: "1" } },
         (error) => resolve({ code: error ? (typeof error.code === "number" ? error.code : null) : 0 }),
       );
     });
@@ -37,11 +41,11 @@ describe.skipIf(!enabled)("Pi e2e", () => {
       return `${name}:${info.messageCount}:${info.lastEntry?.kind ?? "none"}${info.lastEntry?.kind === "assistant" ? `/${info.lastEntry.stopReason}` : ""}`;
     }));
     expect(result.code, `phase=${state.phase}, status=${state.status}, events=${events.slice(-8).map((e) => e.type).join(",")}, sessions=${inspected.join(",")}`).toBe(0);
-    expect(state).toMatchObject({ stage: "done", status: "terminal" });
-    expect(await readFile(path.join(sb.project, "NOTES.md"), "utf8")).toBeTruthy();
+    expect(state).toMatchObject({ stage: terminal, status: "terminal" });
+    expect(await readFile(path.join(sb.project, file), "utf8")).toBeTruthy();
     expect(events.filter((e) => e.type === "stage.transitioned")).toHaveLength(2);
     expect(events.some((e) => e.type === "supervisor.protocol_error")).toBe(false);
-  }, 70_000);
+  }, 100_000);
 
   it("guard реальной Pi-сессии отклоняет write в state.json", async () => {
     const agentDir = process.env.PI_CODING_AGENT_DIR;

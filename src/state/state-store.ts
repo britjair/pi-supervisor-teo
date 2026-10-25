@@ -14,10 +14,33 @@ import { StateVersionConflictError, TaskCorruptedError, TaskNotFoundError } from
 import type { Clock } from "../util/clock.js";
 import { noFaults, type FaultInjector } from "../util/fault.js";
 import { randomHex, type IdGenerator } from "../util/ids.js";
+import { redactEventPayload } from "../util/redact.js";
 import { writeFileAtomic } from "./atomic-file.js";
 import { EventJournal, fileStamp } from "./event-store.js";
 import { taskLayout, type ProjectLayout, type TaskLayout } from "./layout.js";
 import { describeZodIssues, taskStateSchema } from "./state-schema.js";
+
+/** Копия state.json, изменённого не процессом sdlc, и последний state, записанный sdlc до подмены. */
+const TAMPERED_SUFFIX = ".tampered-";
+const BEFORE_SUFFIX = ".before-";
+
+export type TamperedCopy = { stamp: string; tampered: string; before: string | null };
+
+/** Разбор state.json: JSON, схема, инварианты. `file` — для сообщения об ошибке. */
+export function parseTaskState(key: string, file: string, bytes: Uint8Array): TaskState {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  } catch (err) {
+    throw new TaskCorruptedError(key, file, `state.json не разбирается как JSON (${(err as Error).message})`);
+  }
+  const parsed = taskStateSchema.safeParse(raw);
+  if (!parsed.success) throw new TaskCorruptedError(key, file, describeZodIssues(parsed.error));
+  const state = parsed.data as TaskState;
+  const violations = checkInvariants(state, key);
+  if (violations.length > 0) throw new TaskCorruptedError(key, file, violations.join("; "));
+  return state;
+}
 
 /** Сколько последних событий журнала сверяется с outbox (02-storage.md §7.3). */
 const OUTBOX_TAIL = 64;
@@ -104,18 +127,23 @@ export class TaskStore {
       if (dirExists) throw new TaskCorruptedError(key, t.state, "нет state.json");
       throw new TaskNotFoundError(`Задача ${key} не найдена.`);
     }
-    let raw: unknown;
-    try {
-      raw = JSON.parse(bytes.toString("utf8"));
-    } catch (err) {
-      throw new TaskCorruptedError(key, t.state, `state.json не разбирается как JSON (${(err as Error).message})`);
-    }
-    const parsed = taskStateSchema.safeParse(raw);
-    if (!parsed.success) throw new TaskCorruptedError(key, t.state, describeZodIssues(parsed.error));
-    const state = parsed.data as TaskState;
-    const violations = checkInvariants(state, key);
-    if (violations.length > 0) throw new TaskCorruptedError(key, t.state, violations.join("; "));
-    return { state, bytes };
+    return { state: parseTaskState(key, t.state, bytes), bytes };
+  }
+
+  /** Копии, сохранённые при обнаружении подмены (02-storage.md §7.5), новые первыми. */
+  async tamperedCopies(key: string): Promise<TamperedCopy[]> {
+    const t = this.task(key);
+    const names = await readdir(t.dir).catch(() => [] as string[]);
+    const base = path.basename(t.state);
+    return names
+      .filter((n) => n.startsWith(`${base}${TAMPERED_SUFFIX}`))
+      .sort()
+      .reverse()
+      .map((n) => {
+        const stamp = n.slice(base.length + TAMPERED_SUFFIX.length);
+        const before = `${base}${BEFORE_SUFFIX}${stamp}`;
+        return { stamp, tampered: path.join(t.dir, n), before: names.includes(before) ? path.join(t.dir, before) : null };
+      });
   }
 
   /** Событие без изменения state (02-storage.md §6.2: «Меняет state = нет»): прямо в журнал. */
@@ -130,7 +158,7 @@ export class TaskStore {
       type,
       stateVersion: state.version,
       actor,
-      payload,
+      payload: redactEventPayload(type, payload),
     } as TaskEvent;
     await this.journal(key).append([event]);
     return event;
@@ -234,7 +262,7 @@ export class TaskStore {
       emit: (type, actor, payload) => {
         const id = this.deps.ids.next(last);
         last = id;
-        const body = typeof payload === "function" ? payload(id) : payload;
+        const body = redactEventPayload(type, typeof payload === "function" ? payload(id) : payload);
         events.push({ id, timestamp: now, taskKey: key, type, stateVersion: version, actor, payload: body } as TaskEvent);
         return id;
       },
@@ -285,8 +313,11 @@ export class TaskStore {
   private async blockTampered(key: string, bytes: Buffer, lastGood: TaskState): Promise<TaskState> {
     const t = this.task(key);
     const now = this.deps.clock.now();
-    const copy = `${t.state}.tampered-${fileStamp(now)}`;
+    const stamp = fileStamp(now);
+    const copy = `${t.state}${TAMPERED_SUFFIX}${stamp}`;
     await writeFileAtomic(copy, bytes);
+    // Заблокированный state теряет фазу; для «восстановить» нужен последний state, записанный sdlc
+    await writeFileAtomic(`${t.state}${BEFORE_SUFFIX}${stamp}`, serialize(lastGood));
     this.deps.log?.(`${key}: state.json изменён извне, копия сохранена в ${copy}`);
 
     // Журнал мог не получить события последней нашей записи
@@ -295,7 +326,7 @@ export class TaskStore {
 
     const version = lastGood.version + 1;
     const { ctx, events } = this.transaction(key, version, lastGood.lastEventId);
-    const message = `state.json изменён не процессом sdlc; изменённая копия: ${path.basename(copy)}`;
+    const message = `state.json изменён не процессом sdlc; изменённая копия: ${path.basename(copy)}. Восстановление: sdlc recover ${key}`;
     ctx.emit("task.blocked", "cli", { code: "STATE_TAMPERED", message, by: "cli" });
     const blocked = haltedState(structuredClone(lastGood), "blocked", { code: "STATE_TAMPERED", message, at: ctx.now });
     return this.write(key, this.finalize(blocked, version, ctx.now, events, lastGood.lastEventId), events);

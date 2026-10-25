@@ -4,7 +4,7 @@
 import type { TaskEvent } from "../domain/events.js";
 import type { NextAction } from "../domain/next-action.js";
 import type { PolicyErrorCode, PolicyIssue, PolicyIssueParam } from "../domain/policy.js";
-import type { AgentInputKind, SupervisorTriggerKind, TaskStatus } from "../domain/task-state.js";
+import { RECOVER_HINT_CODES, type AgentInputKind, type SupervisorTriggerKind, type TaskStatus } from "../domain/task-state.js";
 import type { LockHolder } from "../errors/errors.js";
 import type { PolicyDiffEntry } from "../policy/policy-diff.js";
 import type { TaskKeyProblem } from "../state/task-key.js";
@@ -205,9 +205,9 @@ export const msg = {
   fixPolicy: (p: string) => `Исправьте ${p} и повторите команду. Проверка: sdlc doctor`,
   warningsTitle: (n: number) => `Предупреждения (${n}):`,
 
-  notImplemented: (command: string) => `Команда «${command}» ещё не реализована.`,
   unexpectedError: (m: string) => `Непредвиденная ошибка: ${m}`,
   verboseHint: "Подробности: повторите команду с флагом --verbose.",
+  debugLogHint: (file: string) => `Подробности: ${file} (или повторите команду с флагом --verbose).`,
 
   cli: {
     description: "Локальный контроллер SDLC-процесса из ~/.pi/SDLC.md",
@@ -302,7 +302,46 @@ export const msg = {
     stage: (t: string) => `Текущий этап:        ${t}`,
     lastEvent: (t: string) => `Последнее событие:   ${t}`,
     next: (t: string) => `Следующее действие:  ${t}`,
-    notImplemented: "Запуск агентов и supervisor ещё не реализован (этап M3): задача остаётся в сохранённой фазе.",
+  },
+
+  recover: {
+    title: (key: string, title: string) => `Восстановление ${key} · ${title}`,
+    question: "Что сделать?",
+    finished: (key: string) => `Задача ${key} завершена: восстанавливать нечего.`,
+    nothing: (key: string) => `Задача ${key} не требует ручного восстановления. Продолжить: sdlc resume ${key}`,
+    setStage: "Перевести задачу на этап…",
+    chooseStage: "На какой этап перевести задачу? Агент этапа начнёт его заново.",
+    currentStage: "(текущий)",
+    acceptPolicy: (from: string, to: string) => `Принять текущую Policy (${from} → ${to})`,
+    acceptTampered: "Принять изменённый state.json как есть",
+    restoreBeforeTamper: "Восстановить state, записанный sdlc до подмены",
+    unblock: "Разблокировать с комментарием (supervisor продолжит)",
+    unblockNote: "Что изменилось?",
+    unblockNoteEmpty: "Нужен комментарий.",
+    exit: "Выйти без изменений",
+    tamperedTitle: (file: string) => `Изменения в ${file} относительно последнего state, записанного sdlc:`,
+    tamperedNoDiff: "  отличий в полях задачи нет",
+    tamperedMore: (n: number) => `  … ещё ${n}`,
+    tamperedInvalid: (file: string, reason: string) => `Копию ${file} принять нельзя: ${reason}`,
+    tamperedNoBefore: "Состояния до подмены не сохранилось (задача заблокирована старой версией sdlc).",
+    tamperedNoCopies: "Копии изменённого state.json не найдены.",
+    sessionCorrupted: (file: string, reason: string) => `Файл сессии ${file} повреждён: ${reason}`,
+    policyStageMissing: (stage: string) => `Этапа «${stage}» нет в текущей Policy: выберите этап.`,
+    confirmTampered: "Заменить state задачи изменённой копией?",
+    done: {
+      setStage: (key: string, stage: string) => `✓ Задача ${key} переведена на этап «${stage}».`,
+      acceptPolicy: (key: string) => `✓ Задача ${key} идёт по текущей Policy.`,
+      acceptTampered: (key: string) => `✓ Изменённый state задачи ${key} принят.`,
+      restoreBeforeTamper: (key: string) => `✓ State задачи ${key} восстановлен.`,
+      session: (key: string, label: string) => `✓ ${key}: ${label}.`,
+      unblock: (key: string) => `✓ Задача ${key} разблокирована.`,
+    },
+    next: (key: string) => `Следующий шаг: sdlc resume ${key}`,
+    nonInteractive: (key: string, hints: string[]) =>
+      [`Задаче ${key} нужно ручное восстановление, а терминала нет. Варианты:`, ...hints.map((h) => `  ${h}`)].join("\n"),
+    hintSetStage: (key: string) => `sdlc recover ${key} --set-stage <этап>`,
+    hintAcceptPolicy: (key: string) => `sdlc recover ${key} --accept-policy`,
+    hintTerminal: (key: string) => `sdlc recover ${key} в терминале — подмена state и повреждённая сессия разбираются только интерактивно`,
   },
 
   newTask: {
@@ -463,7 +502,25 @@ export const msg = {
     projectAccess: "Права на чтение и запись каталога проекта",
     projectAccessFailed: (code: string) => `Нет прав на чтение и запись каталога проекта (${code})`,
     sdlcAbsent: "Каталога .sdlc нет: задач в проекте ещё нет",
-    fixNotImplemented: "doctor --fix ещё не реализован (M6). Без --fix doctor ничего не меняет.",
+    fix: {
+      title: "Исправления:",
+      nothing: "Исправлять нечего.",
+      ask: (title: string, explicit: boolean) => `${title}?${explicit ? " Это нельзя проверить автоматически." : ""}`,
+      declined: "пропущено",
+      needsLock: "lock проекта не снят",
+      busy: (line: string) => `Проект занят живым процессом (${line}): исправления хранилища невозможны.`,
+      lockChanged: "lock изменился после проверки: его уже забрал другой процесс",
+      lockDead: (line: string) => `Снять протухший lock: ${line}`,
+      lockForeign: (line: string) => `Снять lock другого хоста (${line}), если там sdlc точно не запущен`,
+      lockUnreadable: "Удалить нечитаемый lock-файл",
+      gitignore: "Создать .sdlc/.gitignore",
+      orphans: (n: number) => `Удалить осиротевшие временные файлы (${n})`,
+      journal: (key: string, broken: boolean, undelivered: number) =>
+        `Починить журнал ${key}: ${[broken ? "обрезать оборванную запись" : null, undelivered > 0 ? `дописать outbox (${undelivered})` : null].filter(Boolean).join(", ")}`,
+      index: "Перестроить .sdlc/index.json",
+      policyFirst: "Сначала исправьте Policy: исправления хранилища выполняются только с валидной Policy.",
+      after: (summary: string) => `После исправлений: ${summary.replace(/^Итог: /, "")}`,
+    },
     summary: (errors: number, warnings: number) =>
       errors === 0 && warnings === 0
         ? "Итог: проблем не найдено."
@@ -575,7 +632,7 @@ export function nextActionText(a: NextAction, ctx: { key: string; now: Date }): 
     case "cancelled":
       return "отменена";
     case "blocked":
-      return `заблокирована${a.reason ? `: ${clip(a.reason)}` : a.code ? `: ${a.code}` : ""} — sdlc resume ${ctx.key}`;
+      return `заблокирована${a.reason ? `: ${clip(a.reason)}` : a.code ? `: ${a.code}` : ""} — sdlc ${a.code && RECOVER_HINT_CODES.includes(a.code) ? "recover" : "resume"} ${ctx.key}`;
   }
 }
 

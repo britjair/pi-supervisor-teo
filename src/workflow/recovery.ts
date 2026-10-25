@@ -5,10 +5,11 @@
 import path from "node:path";
 import { recoveryMessages } from "../agents/prompts/agent-prompts.js";
 import { askAgentQuestion } from "../agents/tools/child-tools.js";
-import { haltedState, type TaskState } from "../domain/task-state.js";
+import type { TaskState } from "../domain/task-state.js";
 import { UserAbortError } from "../errors/errors.js";
 import { settleRun } from "./agent-step.js";
 import type { EngineCore } from "./context.js";
+import { SESSION_CHOICE_LABELS, sessionChoiceMutator, type SessionChoice } from "./manual.js";
 import type { ExitOutcome } from "./outcome.js";
 import { InterruptRequest } from "./outcome.js";
 
@@ -130,13 +131,8 @@ async function ambiguous(core: EngineCore, state: TaskState, reason: string): Pr
     text: `Задача ${core.key} не может быть восстановлена автоматически: файл сессии ${run?.sessionFile ?? ""} повреждён (${reason}).`,
   });
   if (!core.human) return { kind: "waiting_human" };
-  type Choice = "restart" | "supervisor" | "block" | "exit";
-  const labels: Record<Choice, string> = {
-    restart: "Перезапустить агента этапа с новой сессией (restart)",
-    supervisor: "Передать supervisor для решения",
-    block: "Заблокировать задачу",
-    exit: "Выйти без изменений",
-  };
+  type Choice = SessionChoice | "exit";
+  const labels: Record<Choice, string> = { ...SESSION_CHOICE_LABELS, exit: "Выйти без изменений" };
   let choice: Choice;
   try {
     choice = await core.human.select<Choice>(
@@ -148,32 +144,6 @@ async function ambiguous(core: EngineCore, state: TaskState, reason: string): Pr
     throw err;
   }
   if (choice === "exit") return { kind: "recovery_declined" };
-  await core.store.tasks.commit(
-    core.key,
-    (s, c) => {
-      c.emit("human.responded", "human", { requestId: null, answer: labels[choice], selectedOption: labels[choice] });
-      c.emit("runtime.recovered", "cli", { phase: s.phase, action: `ambiguous_${choice}`, details: { reason } });
-      if (choice === "block") {
-        c.emit("task.blocked", "cli", { code: "SESSION_CORRUPTED", message: reason, by: "cli" });
-        return haltedState(s, "blocked", { code: "SESSION_CORRUPTED", message: `файл сессии повреждён: ${reason}`, at: c.now });
-      }
-      if (choice === "restart") {
-        return {
-          ...s,
-          status: "active",
-          phase: "agent_pending",
-          nextAgentInput: { kind: "restart", message: "Файл сессии предыдущей попытки повреждён. Начни этап заново.", decisionId: null },
-        };
-      }
-      return {
-        ...s,
-        status: "active",
-        phase: "supervisor_pending",
-        currentRun: s.currentRun ? { ...s.currentRun, status: "failed", settleReason: "interrupted" } : null,
-        supervisor: { ...s.supervisor, trigger: { kind: "recovered", ref: s.currentRun?.runId ?? null } },
-      };
-    },
-    { expectedVersion: state.version },
-  );
+  await core.store.tasks.commit(core.key, sessionChoiceMutator(choice, reason), { expectedVersion: state.version });
   return choice === "block" ? { kind: "blocked", code: "SESSION_CORRUPTED" } : null;
 }

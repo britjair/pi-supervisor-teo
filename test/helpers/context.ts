@@ -9,6 +9,7 @@ import { createStyle } from "../../src/ui/plain/style.js";
 import type { Clock } from "../../src/util/clock.js";
 import { execFileNoThrow } from "../../src/util/exec.js";
 import { noFaults, type FaultInjector } from "../../src/util/fault.js";
+import { DebugLog } from "../../src/util/debug-log.js";
 import { createIdGenerator } from "../../src/util/ids.js";
 import { FakeClock } from "./fake-clock.js";
 import type { Sandbox } from "./tmp.js";
@@ -41,6 +42,7 @@ export function testContext(
     process: { pid: process.pid, hostname: os.hostname(), startedAt: clock.now().toISOString() },
     nodeVersion: opts.nodeVersion ?? process.versions.node,
     policyLoader: new PolicyLoader(sb.policyPath),
+    debugLog: new DebugLog(() => clock.now()),
     log: () => undefined,
     out: () => out,
     err: () => err,

@@ -73,6 +73,24 @@ describe("commit", () => {
     expect(emitted > created.lastEventId).toBe(true);
   });
 
+  it("payload событий проходит redaction до записи; ответ человека сохраняется дословно", async () => {
+    const { store } = await testStore();
+    await newTask(store, "T-1");
+    const secret = "ghp" + "_" + "aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xYz123";
+    const answer = `одобряю, токен для деплоя ${secret}`;
+    const next = await store.tasks.commit("T-1", (s, c) => {
+      c.emit("supervisor.note", "supervisor", { cycle: 1, text: `агент вывел ${secret}` });
+      c.emit("human.responded", "human", { requestId: null, answer, selectedOption: null });
+      return s;
+    });
+    await store.tasks.appendDirect("T-1", "supervisor.note", "supervisor", { cycle: 1, text: `и ещё раз ${secret}` });
+    const t = store.tasks.task("T-1");
+    const journal = await readFile(t.events, "utf8");
+    expect(journal.split(secret)).toHaveLength(2); // только в ответе человека
+    expect(journal).toContain(answer);
+    expect(JSON.stringify(next.outbox[0])).not.toContain(secret);
+  });
+
   it("commit без событий сохраняет lastEventId", async () => {
     const { store } = await testStore();
     const created = await newTask(store, "T-1");
@@ -206,6 +224,11 @@ describe("загрузка", () => {
     const copies = (await readdir(path.dirname(file))).filter((f) => f.startsWith("state.json.tampered-"));
     expect(copies).toHaveLength(1);
     expect(JSON.parse(await readFile(path.join(path.dirname(file), copies[0] ?? ""), "utf8"))).toMatchObject({ title: "подменено" });
+    // Рядом — последний state, записанный sdlc: из него recover восстанавливает фазу
+    const [found] = await store.tasks.tamperedCopies("T-1");
+    expect(found?.tampered).toBe(path.join(path.dirname(file), copies[0] ?? ""));
+    expect(JSON.parse(await readFile(found?.before ?? "", "utf8"))).toEqual(s);
+    expect(loaded.statusReason?.message).toContain("sdlc recover T-1");
     // Повторная загрузка — файл наш, подмены нет
     expect((await store.tasks.load("T-1")).version).toBe(2);
   });

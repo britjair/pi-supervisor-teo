@@ -139,7 +139,7 @@ export class Engine implements EngineCore {
 
   async ask(view: QuestionView): Promise<HumanAnswer> {
     if (!this.human) throw new Error("нет терминала для вопроса человеку");
-    return askQuestion(this.human, view, this.style);
+    return this.human.askQuestion ? this.human.askQuestion(view) : askQuestion(this.human, view, this.style);
   }
 
   select<T>(title: string, choices: ReadonlyArray<Choice<T>>): Promise<T> {

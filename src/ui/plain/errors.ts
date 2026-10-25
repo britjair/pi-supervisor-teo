@@ -5,11 +5,14 @@ import { lockConflictText, msg } from "../messages.js";
 import { renderPolicyError } from "./policy-report.js";
 import type { Style } from "./style.js";
 
-export function renderError(err: unknown, ctx: { homeDir: string; style: Style; now: Date; verbose: boolean }): string {
+export function renderError(
+  err: unknown,
+  ctx: { homeDir: string; style: Style; now: Date; verbose: boolean; debugLogPath?: string | null },
+): string {
   if (err instanceof PolicyError) return renderPolicyError(err, { homeDir: ctx.homeDir, style: ctx.style });
   if (err instanceof LockConflictError) return lockConflictText(err.holder, ctx.now) + "\n";
   if (err instanceof SdlcError) return err.message + "\n";
   const message = err instanceof Error ? err.message : String(err);
-  const detail = ctx.verbose && err instanceof Error && err.stack ? err.stack : msg.verboseHint;
+  const detail = ctx.verbose && err instanceof Error && err.stack ? err.stack : ctx.debugLogPath ? msg.debugLogHint(ctx.debugLogPath) : msg.verboseHint;
   return `${msg.unexpectedError(message)}\n${detail}\n`;
 }

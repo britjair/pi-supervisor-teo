@@ -4,14 +4,34 @@ CLI `sdlc` ведёт задачу через SDLC-процесс, описан�
 
 ## Статус
 
-Готовы этапы M1–M5 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)):
+Готовы этапы M1–M6 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)):
 
 - загрузчик и валидатор Policy (`src/policy/`): preflight, front matter, схема, граф, hash, структурный diff, снимки;
-- хранилище `.sdlc/` (`src/state/`): атомарная запись, `state.json` с инвариантами и outbox, журнал событий с ремонтом хвоста, обнаружение подмены state, `index.json`, project lock с takeover и heartbeat;
-- команды `sdlc` (Ink-меню в TTY, линейный режим для pipe/`--plain`), `new` (создаёт и запускает задачу; `--no-run` создаёт без запуска), `resume`, `status`, `history`, `cancel`, `doctor` (включая SDK/модели/авторизацию; без `--fix`);
+- хранилище `.sdlc/` (`src/state/`): атомарная запись, `state.json` с инвариантами и outbox, журнал событий с ремонтом хвоста, обнаружение подмены state, `index.json`, project lock с takeover и heartbeat, `debug.log` (последний процесс, ротация в `.1`, ≤ 5 MB);
+- команды `sdlc` (Ink-меню в TTY, линейный режим для pipe/`--plain`), `new` (создаёт и запускает задачу; `--no-run` создаёт без запуска), `resume`, `status`, `history`, `cancel`, `recover`, `doctor [--fix]`;
 - движок M3: фазы, решения supervisor-а, вопросы человеку, ожидание и перепроверка, изменение Policy, recovery и fault-injection;
 - интеграция Pi SDK 1.4.0 (M4): модель, сессии и их инспекция, TypeBox-адаптер инструментов, inline guard;
-- TUI M5: один Ink root для меню, форм, потока событий, human prompt и ожидания; `Ctrl+C` с подтверждением во время хода, `t` для thinking, `s` для статуса, `Enter`/`m`/`q` в ожидании; plain-репортёр соответствует формату `docs/05-cli-ui.md §5`. `recover` в CLI пока заглушка; полный `recover` — M6.
+- TUI M5: один Ink root для меню, форм, потока событий, human prompt и ожидания; `Ctrl+C` с подтверждением во время хода, `t` для thinking, `s` для статуса, `Enter`/`m`/`q` в ожидании; plain-репортёр в формате `docs/05-cli-ui.md §5`;
+- hardening M6:
+  - redaction каждого payload события перед записью (ответ человека — дословно) и расширенный набор форматов: OpenAI/Anthropic, Stripe, GitHub, GitLab, Slack, AWS, Google, Atlassian, npm, PyPI, Docker Hub, Hugging Face, SendGrid, Telegram, JWT, PEM/OpenSSH/PGP, заголовки `Authorization`, пароли в URL, присваивания `*_TOKEN=…`/`"password": …`; счётчики `inputTokens` и т. п. не скрываются;
+  - `sdlc recover` для всех ситуаций `docs/05-cli-ui.md §2.1`: выбор этапа, принятие новой Policy, подмена state (показ diff, «восстановить state до подмены» или «принять как есть»), повреждённая сессия агента (restart / supervisor / блокировка), разблокировка с комментарием; флаги `--set-stage` и `--accept-policy` — без меню;
+  - `sdlc doctor --fix`: по одному исправлению с подтверждением — протухший lock, lock другого хоста (только явным «да»), `.gitignore`, осиротевшие `*.tmp`, хвост журнала и outbox, `index.json`. Без терминала выполняются только безопасные исправления.
+
+### Чек-лист приёмки ([docs/06-implementation.md §5](docs/06-implementation.md#5-чек-лист-приёмки))
+
+| # | Чем проверяется |
+|---|---|
+| 1 | `test/unit/policy-loader.test.ts`, `test/integration/cli-preflight.test.ts` (каждая команда × каждая ошибка Policy) |
+| 2 | `test/unit/no-process-literals.test.ts` |
+| 3 | `test/e2e/pi-smoke.test.ts`: две Policy с разными этапами и агентами на одном `dist/` |
+| 4, 6, 15 | `test/unit/ink-ui.test.tsx`, `test/unit/ink-human-io.test.tsx`, `test/integration/storage-cli.test.ts`, сценарий 18 |
+| 5, 16 | сценарии 5, 12–16, 23 (`test/integration/engine-*.test.ts`) |
+| 7 | сценарий 19, `test/unit/lock-manager.test.ts` |
+| 8 | guard и набор tools агента, сценарий 22 |
+| 9, 11, 13, 14 | `engine-basic`, сценарии 4–7, 9, 15, 20, 23–28 |
+| 10 | `test/unit/prompts.test.ts`: snapshot-ы промптов на двух Policy, сценарии 10, 17 |
+| 12 | guards: сценарий 11, `test/unit/agent-guard-evidence.test.ts` |
+| 17 | e2e `discover → execute → done` |
 
 ## Разработка
 
@@ -40,13 +60,33 @@ scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi && cp examples/SDLC.md /tmp/h/.pi/SDLC
 - Тесты хранилища `test/integration/storage-cli.test.ts` запускают собранный `dist/cli.js` с подменённым `HOME` и `TZ=UTC`. Сбой в именованной точке включается переменной `SDLC_FAULT=after-state-commit:kill` (D27): так тест убивает процесс между записью state и журналом.
 - `test/integration/engine-*.test.ts` прогоняют движок на `FakeAgentRuntime` с временным проектом и инъекцией сбоя в каждой именованной точке каждого её прохождения; отдельные unit-тесты проверяют guard, evidence и остановку активной сессии.
 - Меню и формы тестируются in-process через `ScriptedHumanIO` (`test/helpers/`); Ink-компоненты меню, формы, human prompt, выполнения и ожидания — через `ink-testing-library` в `test/unit/ink-ui.test.tsx`.
-- Полный обычный прогон M5: 402 теста; реальный Pi e2e: 2 теста.
+- `test/integration/recover.test.ts` — каждая ситуация `sdlc recover` и флаги через CLI; `test/integration/doctor-fix.test.ts` — исправления `doctor --fix`, отказ, lock другого хоста, живой владелец.
+- `test/unit/redact.test.ts` — реальные форматы токенов (собираются из частей, чтобы сканеры секретов не реагировали на фикстуры) и отсутствие ложных срабатываний на хешах, ULID и счётчиках токенов.
+- `test/unit/prompts.test.ts` — snapshot-ы промптов в `test/unit/__snapshots__/prompts/` на двух Policy; после осознанного изменения шаблона обновляются через `scripts/dev.sh npx vitest run -u test/unit/prompts.test.ts`.
+- Полный обычный прогон M6: 43 файла, 466 тестов; реальный Pi e2e: 3 теста (две Policy + guard).
 - `scripts/e2e.sh` монтирует только нужные файлы из `~/.pi/agent` **read-only**, копирует их во временный контейнер и удаляет список установленных пакетов/расширений из копии настроек. Исходный `~/.pi` не изменяется. Для другого источника: `SDLC_E2E_AGENT_DIR=<каталог> scripts/e2e.sh`. E2E делает реальные вызовы модели и может стоить денег.
 
-## Запуск на хосте (открытый вопрос Q4)
+## Установка на хост
 
-`sdlc` должен работать на хосте, потому что ему нужны проект, `~/.pi` и те же Docker и git, что у агентов. Предложение (решим до этапа выпуска M6):
+`sdlc` работает на хосте: ему нужны проект, `~/.pi` и те же Docker и git, что у агентов. Новый Node не нужен — подходит Node 26.12.1 из Homebrew, на котором уже работает `pi` (нужен ≥ 22.19).
 
-1. Новый Node ставить не нужно: Node 26.12.1 из Homebrew на хосте уже есть, это зависимость `pi`.
-2. Путь распространения ещё не выбран. Проверка в M4 нашла в зависимости Pi (`@earendil-works/pi-tui`) платформенные `.node`-файлы, включая готовые сборки для macOS; просто переносить Linux-установку `node_modules` на macOS **нельзя**. Возможные варианты M6: собирать macOS-дерево зависимостей в контейнере с проверкой платформенных пакетов или использовать SDK из установленного Homebrew-пакета `pi`. Последний вариант связывает sdlc с раскладкой Homebrew.
-3. Без `npm link` и глобальной установки: запуск `node ~/code/sdlc-cli/dist/cli.js`, команду `sdlc` даёт alias, который вы добавите в свой `~/.zshrc`.
+Зависимости ставятся **на той же платформе, где запускается CLI**: в `@earendil-works/pi-tui` есть платформенные `.node`-файлы, поэтому Linux-дерево `node_modules` из контейнера на macOS переносить нельзя. Volume контейнера не пересекается с каталогом `node_modules/` хоста.
+
+Выбран стандартный путь ([docs/06-implementation.md §3, M6](docs/06-implementation.md#m6-hardening-и-выпуск)):
+
+```bash
+cd ~/code/sdlc-cli
+npm ci && npm run build && npm link   # команда sdlc появляется в /opt/homebrew/bin
+```
+
+`npm link` ссылается на рабочую копию: после `git pull` достаточно `npm ci && npm run build`. Удалить: `npm unlink -g sdlc-cli`.
+
+Затем:
+
+```bash
+cp examples/SDLC.md ~/.pi/SDLC.md     # пример процесса; правьте под себя
+cd <проект> && sdlc doctor            # Policy, Pi SDK, модели, авторизация, хранилище
+sdlc                                  # меню: создать или продолжить задачу
+```
+
+Эти команды выполняет пользователь: при разработке на хост ничего не ставилось, установка на macOS не запускалась.

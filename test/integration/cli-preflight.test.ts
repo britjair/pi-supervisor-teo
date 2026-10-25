@@ -144,11 +144,11 @@ describe("sdlc doctor", () => {
     expect(r.stdout).toContain(`Проект ${sb.project} (текущий каталог, git-репозиторий не найден)`);
   });
 
-  it("--fix пока не реализован и ничего не меняет", async () => {
+  it("--fix без .sdlc: исправлять нечего, каталог не создаётся", async () => {
     const sb = await sandbox(readFileSync(examplePolicy));
     const r = await runCli(sb, ["doctor", "--fix"]);
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain("doctor --fix ещё не реализован");
+    expect(r.stdout).toContain("Исправлять нечего.");
+    expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
   });
 });
 

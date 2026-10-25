@@ -12,6 +12,7 @@ import { createStyle, type Style } from "./ui/plain/style.js";
 import { systemClock, type Clock } from "./util/clock.js";
 import { execFileNoThrow, type Exec } from "./util/exec.js";
 import { faultsFromEnv, type FaultInjector } from "./util/fault.js";
+import { DebugLog } from "./util/debug-log.js";
 import { createIdGenerator, type IdGenerator } from "./util/ids.js";
 
 export type Output = { write(chunk: string): unknown; isTTY?: boolean };
@@ -38,6 +39,8 @@ export type AppContext = {
   process: ProcessInfo;
   nodeVersion: string;
   policyLoader: PolicyLoader;
+  /** .sdlc/debug.log: пишется всегда, в stderr — только с --verbose */
+  debugLog: DebugLog;
   log(message: string): void;
 };
 
@@ -59,6 +62,7 @@ export function createAppContext(o: AppOptions): AppContext {
   const style = createStyle(o.color);
   const interactive = o.stdin.isTTY === true && o.stdout.isTTY === true;
   const clock = systemClock;
+  const debugLog = new DebugLog(() => clock.now());
   return {
     cwd: o.cwd ?? process.cwd(),
     homeDir,
@@ -77,7 +81,9 @@ export function createAppContext(o: AppOptions): AppContext {
     process: { pid: process.pid, hostname: os.hostname(), startedAt: clock.now().toISOString() },
     nodeVersion: process.versions.node,
     policyLoader: new PolicyLoader(defaultPolicyPath(homeDir)),
+    debugLog,
     log: (message) => {
+      debugLog.write(message);
       if (o.verbose) o.stderr.write(style.dim(`[sdlc] ${message}`) + "\n");
     },
   };
@@ -97,7 +103,7 @@ export async function preflight(ctx: AppContext): Promise<Preflight> {
 
 /** Хранилище проекта. Ничего не создаёт: .sdlc появляется при первой mutating-операции. */
 export function openProject(ctx: AppContext, pf: { project: ProjectRoot; policy: LoadedPolicy | null }): ProjectStore {
-  return new ProjectStore({
+  const store = new ProjectStore({
     projectRoot: pf.project.root,
     policy: pf.policy,
     clock: ctx.clock,
@@ -108,6 +114,8 @@ export function openProject(ctx: AppContext, pf: { project: ProjectRoot; policy:
     processStartedAt: ctx.process.startedAt,
     log: ctx.log,
   });
+  ctx.debugLog.attach(store.layout.debugLog);
+  return store;
 }
 
 /** preflight + хранилище проекта: начало любой команды, кроме doctor. */

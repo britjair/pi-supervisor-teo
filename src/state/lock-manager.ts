@@ -167,7 +167,21 @@ export class LockManager {
    * и только протухший, поэтому из процессов, одновременно увидевших протухший lock, выиграет один.
    * Голый rename этого не гарантирует: можно унести уже свежий lock, захваченный между проверкой и rename.
    */
-  private async takeover(inspection: Exclude<LockInspection, { kind: "none" }>): Promise<void> {
+  /**
+   * Снять lock, который автоматически не снимается (другой хост), по явному решению человека
+   * (doctor --fix). Снимается ровно тот lock, который человек видел: nonce перепроверяется.
+   */
+  async forceRemove(inspection: Exclude<LockInspection, { kind: "none" }>): Promise<boolean> {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      if (await this.takeover(inspection, true)) return true;
+      const current = await this.inspect();
+      if (current.kind === "none") return false;
+      if (current.kind === "held" && inspection.kind === "held" && current.lock.nonce !== inspection.lock.nonce) return false;
+    }
+    return false;
+  }
+
+  private async takeover(inspection: Exclude<LockInspection, { kind: "none" }>, force = false): Promise<boolean> {
     const mutex = `${this.deps.file}.takeover`;
     let fh;
     try {
@@ -178,7 +192,7 @@ export class LockManager {
       const age = await stat(mutex).then((st) => this.deps.clock.now().getTime() - st.mtimeMs, () => 0);
       if (age > this.unreadableStaleMs) await unlink(mutex).catch(() => undefined);
       await new Promise((r) => setTimeout(r, 10 + Math.random() * 20));
-      return;
+      return false;
     }
     try {
       await fh.writeFile(JSON.stringify({ pid: this.deps.pid, hostname: this.deps.hostname }) + "\n");
@@ -188,7 +202,9 @@ export class LockManager {
       const same =
         (current.kind === "held" && inspection.kind === "held" && current.lock.nonce === inspection.lock.nonce) ||
         (current.kind === "unreadable" && inspection.kind === "unreadable");
-      if (same && current.stale) await unlink(this.deps.file).catch(() => undefined);
+      if (!same || !(current.stale || force)) return false;
+      await unlink(this.deps.file).catch(() => undefined);
+      return true;
     } finally {
       await fh?.close();
       await unlink(mutex).catch(() => undefined);

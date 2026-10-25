@@ -1,5 +1,5 @@
-// sdlc doctor, 05-cli-ui.md §7. Часть M1: окружение, Policy, project root.
-// Pi SDK, модели и пробная сессия — M4; хранилище .sdlc — M2. Без --fix ничего не меняет.
+// sdlc doctor, 05-cli-ui.md §7: окружение, Policy, Pi SDK и модели, project root, хранилище .sdlc.
+// Без --fix ничего не меняет; исправления — doctor-fix.ts.
 
 import { constants } from "node:fs";
 import { PiAgentRuntime } from "../agents/pi/pi-agent-runtime.js";
@@ -8,7 +8,7 @@ import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { openProject, type AppContext } from "../app.js";
 import { agentList, type LoadedPolicy } from "../domain/policy.js";
-import { ExitCode, PolicyError, UsageError } from "../errors/errors.js";
+import { ExitCode, PolicyError } from "../errors/errors.js";
 import { detectProjectRoot } from "../project/project-root.js";
 import { GITIGNORE_CONTENT } from "../state/layout.js";
 import { holderOf } from "../state/lock-manager.js";
@@ -20,6 +20,7 @@ import { msg } from "../ui/messages.js";
 import { issueLines, policyProblemLines } from "../ui/plain/policy-report.js";
 import { lockText } from "../ui/plain/task-views.js";
 import { tildify } from "../util/strings.js";
+import { planFixes, renderFixes, runFixes } from "./doctor-fix.js";
 
 export type CheckLevel = "ok" | "info" | "warning" | "error" | "skipped";
 
@@ -54,7 +55,10 @@ function modelUsage(policy: LoadedPolicy): string {
   return [...users].map(([ref, who]) => msg.doctor.modelsUsage(ref, who)).join("; ");
 }
 
-export async function collectDoctorChecks(ctx: AppContext, runtime?: AgentRuntime): Promise<{ checks: DoctorCheck[]; policyValid: boolean }> {
+export async function collectDoctorChecks(
+  ctx: AppContext,
+  runtime?: AgentRuntime,
+): Promise<{ checks: DoctorCheck[]; policyValid: boolean; store: ProjectStore; sdlcExists: boolean }> {
   const checks: DoctorCheck[] = [];
   const s = ctx.style;
 
@@ -143,13 +147,14 @@ export async function collectDoctorChecks(ctx: AppContext, runtime?: AgentRuntim
 
   // Хранилище: только если .sdlc уже есть, doctor его не создаёт
   const store = openProject(ctx, { project, policy });
-  if (await store.sdlcExists()) {
+  const sdlcExists = await store.sdlcExists();
+  if (sdlcExists) {
     checks.push(...(await storageChecks(ctx, store)));
   } else {
     checks.push({ id: "storage", level: "info", title: msg.doctor.sdlcAbsent, details: [] });
   }
 
-  return { checks, policyValid: policy !== null };
+  return { checks, policyValid: policy !== null, store, sdlcExists };
 }
 
 /** Свежий heartbeat живого владельца: проект просто занят, это не проблема. */
@@ -285,16 +290,43 @@ export function renderDoctor(ctx: AppContext, checks: readonly DoctorCheck[]): s
     lines.push(`${mark[c.level]} ${title}`);
     for (const d of c.details) lines.push(d ? `    ${d}` : "");
   }
-  const errors = checks.filter((c) => c.level === "error").length;
-  const warnings = checks.filter((c) => c.level === "warning").reduce((n, c) => n + (c.count ?? 1), 0);
-  lines.push("", msg.doctor.summary(errors, warnings));
+  lines.push("", summaryLine(checks));
   return lines.join("\n") + "\n";
 }
 
-export async function runDoctor(ctx: AppContext, opts: { fix: boolean; piRuntime?: AgentRuntime }): Promise<number> {
-  if (opts.fix) throw new UsageError(msg.doctor.fixNotImplemented);
-  const { checks, policyValid } = await collectDoctorChecks(ctx, opts.piRuntime);
-  ctx.stdout.write(renderDoctor(ctx, checks));
+function exitCode(policyValid: boolean, checks: readonly DoctorCheck[]): number {
   if (!policyValid) return ExitCode.config;
   return checks.some((c) => c.level === "error") ? ExitCode.runtime : ExitCode.ok;
+}
+
+function summaryLine(checks: readonly DoctorCheck[]): string {
+  const errors = checks.filter((c) => c.level === "error").length;
+  const warnings = checks.filter((c) => c.level === "warning").reduce((n, c) => n + (c.count ?? 1), 0);
+  return msg.doctor.summary(errors, warnings);
+}
+
+export async function runDoctor(ctx: AppContext, opts: { fix: boolean; piRuntime?: AgentRuntime }): Promise<number> {
+  const first = await collectDoctorChecks(ctx, opts.piRuntime);
+  ctx.stdout.write(renderDoctor(ctx, first.checks));
+  if (!opts.fix) return exitCode(first.policyValid, first.checks);
+
+  const out = (text: string) => (ctx.human ? ctx.human.print(text) : ctx.stdout.write(text));
+  out("\n");
+  // Исправления хранилища — только с валидной Policy: по ней строятся названия этапов в index.json
+  if (!first.policyValid) {
+    out(ctx.style.yellow(msg.doctor.fix.policyFirst) + "\n");
+    return ExitCode.config;
+  }
+  if (!first.sdlcExists) {
+    out(msg.doctor.fix.nothing + "\n");
+    return exitCode(first.policyValid, first.checks);
+  }
+  const plan = await planFixes(ctx, first.store);
+  const results = await runFixes(first.store, plan, ctx.human);
+  out(renderFixes(ctx, plan, results));
+  if (!results.some((r) => r.outcome === "applied")) return exitCode(first.policyValid, first.checks);
+
+  const after = await collectDoctorChecks(ctx, opts.piRuntime);
+  out("\n" + msg.doctor.fix.after(summaryLine(after.checks)) + "\n");
+  return exitCode(after.policyValid, after.checks);
 }

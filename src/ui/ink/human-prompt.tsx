@@ -89,6 +89,7 @@ export function HumanPrompt({
           ) : null}
         </Box>
         <Text color="cyan">{bottomBorder}</Text>
+        <Text color="gray">Ответ сохраняется в журнал задачи дословно.</Text>
       </Box>
 
       {/* Варианты ответа или свободный ввод */}

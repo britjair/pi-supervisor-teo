@@ -8,7 +8,7 @@ import { runDoctor } from "./commands/doctor.js";
 import { runHistory } from "./commands/history.js";
 import { runInteractive } from "./commands/interactive.js";
 import { runNew } from "./commands/new.js";
-import { runPendingCommand } from "./commands/pending.js";
+import { runRecover } from "./commands/recover.js";
 import { runResume } from "./commands/run-task.js";
 import { runStatus } from "./commands/status.js";
 import { ExitCode, SdlcError } from "./errors/errors.js";
@@ -35,7 +35,10 @@ function contextFor(cmd: Command): AppContext {
 }
 
 function reportError(ctx: AppContext, err: unknown): number {
-  ctx.stderr.write(renderError(err, { homeDir: ctx.homeDir, style: ctx.style, now: ctx.clock.now(), verbose: ctx.verbose }));
+  if (!(err instanceof SdlcError)) ctx.debugLog.write(`непредвиденная ошибка: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  ctx.stderr.write(
+    renderError(err, { homeDir: ctx.homeDir, style: ctx.style, now: ctx.clock.now(), verbose: ctx.verbose, debugLogPath: ctx.debugLog.path }),
+  );
   return err instanceof SdlcError ? err.exitCode : ExitCode.runtime;
 }
 
@@ -71,7 +74,6 @@ export async function main(argv: readonly string[]): Promise<number> {
       ctx.human?.close();
     }
   };
-  const pending = (name: string) => run((ctx) => runPendingCommand(ctx, name));
 
   const program = new Command("sdlc")
     .description(msg.cli.description)
@@ -175,7 +177,15 @@ export async function main(argv: readonly string[]): Promise<number> {
     .argument("<KEY>", msg.cli.argKey)
     .option("--set-stage <stage>", msg.cli.optSetStage)
     .option("--accept-policy", msg.cli.optAcceptPolicy)
-    .action(pending("recover"));
+    .action(
+      run((ctx, cmd) => {
+        const o = cmd.opts<{ setStage?: string; acceptPolicy?: boolean }>();
+        return runRecover(ctx, cmd.args[0] ?? "", {
+          ...(o.setStage !== undefined ? { setStage: o.setStage } : {}),
+          ...(o.acceptPolicy === true ? { acceptPolicy: true } : {}),
+        });
+      }),
+    );
 
   program
     .command("doctor")

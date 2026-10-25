@@ -23,6 +23,11 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /** Статусы остановленной задачи: при них phase = halted. */
 export const HALTED_STATUSES: readonly TaskStatus[] = ["terminal", "cancelled", "blocked"];
+/** Причины блокировки, которые снимает только sdlc recover (05-cli-ui.md §2.1). */
+export const RECOVER_ONLY_CODES: readonly string[] = ["POLICY_STAGE_MISSING", "STATE_TAMPERED"];
+/** Блокировки, после которых подсказка ведёт в sdlc recover: там есть подходящие действия. */
+export const RECOVER_HINT_CODES: readonly string[] = [...RECOVER_ONLY_CODES, "SESSION_CORRUPTED"];
+
 /** Задача завершена и в меню попадает в «Показать завершённые». */
 export const FINISHED_STATUSES: readonly TaskStatus[] = ["terminal", "cancelled"];
 

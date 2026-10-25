@@ -52,11 +52,13 @@ export class InkHumanIO implements HumanIO {
     private readonly stdout: Writable,
     private readonly stderr: Writable,
     private readonly clock: Clock,
+    private readonly options: { patchConsole?: boolean } = {},
   ) {}
 
   private start(): void {
     if (!this.instance) this.instance = render(<InkApp controller={this} />, {
       stdin: this.stdin, stdout: this.stdout, stderr: this.stderr, exitOnCtrlC: false,
+      patchConsole: this.options.patchConsole ?? true,
     });
   }
   getSnapshot = (): UiState => this.snapshot;

@@ -85,6 +85,22 @@ describe("LockManager", () => {
     await expect(make().acquire({ command: "new", taskKey: null })).rejects.toBeInstanceOf(LockConflictError);
   });
 
+  it("forceRemove снимает lock другого хоста, только если это тот же lock (nonce)", async () => {
+    const { file, make } = await setup();
+    await writeFile(file, JSON.stringify(foreignLock({ hostname: "other-host", nonce: "seen" })));
+    const seen = await make().inspect();
+    if (seen.kind === "none") throw new Error("lock должен быть");
+    // Пока человек думал, lock перезахватили: снимать нельзя
+    await writeFile(file, JSON.stringify(foreignLock({ hostname: "other-host", nonce: "fresh" })));
+    expect(await make().forceRemove(seen)).toBe(false);
+    expect(existsSync(file)).toBe(true);
+    const fresh = await make().inspect();
+    if (fresh.kind === "none") throw new Error("lock должен быть");
+    expect(await make().forceRemove(fresh)).toBe(true);
+    expect(existsSync(file)).toBe(false);
+    expect((await readdir(path.dirname(file))).filter((f) => f.includes("takeover"))).toEqual([]);
+  });
+
   it("неразбираемый lock: свежий — конфликт, старше 30 с — забирается", async () => {
     const { file, make } = await setup();
     await writeFile(file, "");
