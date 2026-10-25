@@ -1,0 +1,3 @@
+---
+- schema: sdlc/v1   # expect: ROOT_NOT_MAPPING
+---
