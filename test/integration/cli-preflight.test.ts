@@ -108,7 +108,7 @@ describe("sdlc doctor", () => {
     expect(r.stderr).toBe("");
     expect(r.stdout).toMatch(/^✓ Node\.js \d+\.\d+\.\d+ \(нужно ≥ 22\.19\.0\)$/m);
     expect(r.stdout).toMatch(/^✓ Policy ~\/\.pi\/SDLC\.md · sha256:[0-9a-f]{4}…[0-9a-f]{2} · 8 этапов, 5 агентов$/m);
-    expect(r.stdout).toContain(`✓ Project root ${sb.project} (корень git-репозитория)`);
+    expect(r.stdout).toContain(`✓ Проект ${sb.project} (корень git-репозитория)`);
     expect(r.stdout).toContain("Итог: проблем не найдено.");
     expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
   });
@@ -140,7 +140,7 @@ describe("sdlc doctor", () => {
   it("проект вне git — текущий каталог", async () => {
     const sb = await sandbox(readFileSync(examplePolicy), { git: false });
     const r = await runCli(sb, ["doctor"]);
-    expect(r.stdout).toContain(`Project root ${sb.project} (текущий каталог, git-репозиторий не найден)`);
+    expect(r.stdout).toContain(`Проект ${sb.project} (текущий каталог, git-репозиторий не найден)`);
   });
 
   it("--fix пока не реализован и ничего не меняет", async () => {
@@ -192,9 +192,9 @@ describe("интерфейс CLI на русском", () => {
 
   it("валидная Policy: команды-заглушки честно сообщают, что не реализованы", async () => {
     const sb = await sandbox(readFileSync(examplePolicy));
-    const r = await runCli(sb, ["status"]);
+    const r = await runCli(sb, ["resume", "T-1"]);
     expect(r.code).toBe(1);
-    expect(r.stderr).toBe("Команда «status» ещё не реализована.\n");
+    expect(r.stderr).toBe("Команда «resume» ещё не реализована.\n");
     expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
   });
 });

@@ -1,36 +1,52 @@
 // Composition root: собирает сервисы и общий контекст команд. Решений не принимает.
 
 import os from "node:os";
+import type { Readable } from "node:stream";
 import type { LoadedPolicy } from "./domain/policy.js";
 import { PolicyLoader, defaultPolicyPath } from "./policy/policy-loader.js";
 import { detectProjectRoot, type ProjectRoot } from "./project/project-root.js";
+import { ProjectStore } from "./state/project-store.js";
+import type { HumanIO } from "./ui/human-io.js";
+import { PlainHumanIO } from "./ui/plain/plain-human-io.js";
 import { createStyle, type Style } from "./ui/plain/style.js";
 import { systemClock, type Clock } from "./util/clock.js";
 import { execFileNoThrow, type Exec } from "./util/exec.js";
+import { faultsFromEnv, type FaultInjector } from "./util/fault.js";
+import { createIdGenerator, type IdGenerator } from "./util/ids.js";
 
 export type Output = { write(chunk: string): unknown; isTTY?: boolean };
+
+export type ProcessInfo = { pid: number; hostname: string; startedAt: string };
 
 export type AppContext = {
   cwd: string;
   homeDir: string;
   env: Record<string, string | undefined>;
+  stdin: Readable;
   stdout: Output;
   stderr: Output;
+  /** Терминал на входе и выходе, без --plain: можно задавать вопросы */
   interactive: boolean;
+  /** null без терминала: команды, которым нужен ответ человека, требуют флагов */
+  human: HumanIO | null;
   verbose: boolean;
   style: Style;
   clock: Clock;
+  ids: IdGenerator;
+  faults: FaultInjector;
   exec: Exec;
+  process: ProcessInfo;
   nodeVersion: string;
   policyLoader: PolicyLoader;
+  log(message: string): void;
 };
 
 export type AppOptions = {
   cwd?: string;
   env?: Record<string, string | undefined>;
+  stdin: Readable & { isTTY?: boolean };
   stdout: Output;
   stderr: Output;
-  stdinIsTTY: boolean;
   color: boolean;
   plain: boolean;
   verbose: boolean;
@@ -39,19 +55,31 @@ export type AppOptions = {
 export function createAppContext(o: AppOptions): AppContext {
   // os.homedir() учитывает HOME: так e2e-тесты подменяют ~/.pi/SDLC.md (01-policy.md §1.1)
   const homeDir = os.homedir();
+  const env = o.env ?? process.env;
+  const style = createStyle(o.color);
+  const interactive = !o.plain && o.stdin.isTTY === true && o.stdout.isTTY === true;
+  const clock = systemClock;
   return {
     cwd: o.cwd ?? process.cwd(),
     homeDir,
-    env: o.env ?? process.env,
+    env,
+    stdin: o.stdin,
     stdout: o.stdout,
     stderr: o.stderr,
-    interactive: !o.plain && o.stdinIsTTY && o.stdout.isTTY === true,
+    interactive,
+    human: interactive ? new PlainHumanIO(o.stdin, process.stdout, style, true) : null,
     verbose: o.verbose,
-    style: createStyle(o.color),
-    clock: systemClock,
+    style,
+    clock,
+    ids: createIdGenerator(clock),
+    faults: faultsFromEnv(env["SDLC_FAULT"]),
     exec: execFileNoThrow,
+    process: { pid: process.pid, hostname: os.hostname(), startedAt: clock.now().toISOString() },
     nodeVersion: process.versions.node,
     policyLoader: new PolicyLoader(defaultPolicyPath(homeDir)),
+    log: (message) => {
+      if (o.verbose) o.stderr.write(style.dim(`[sdlc] ${message}`) + "\n");
+    },
   };
 }
 
@@ -65,4 +93,25 @@ export async function preflight(ctx: AppContext): Promise<Preflight> {
   const project = await detectProjectRoot(ctx.cwd, ctx.exec);
   const policy = await ctx.policyLoader.loadAndValidate();
   return { project, policy };
+}
+
+/** Хранилище проекта. Ничего не создаёт: .sdlc появляется при первой mutating-операции. */
+export function openProject(ctx: AppContext, pf: { project: ProjectRoot; policy: LoadedPolicy | null }): ProjectStore {
+  return new ProjectStore({
+    projectRoot: pf.project.root,
+    policy: pf.policy,
+    clock: ctx.clock,
+    ids: ctx.ids,
+    faults: ctx.faults,
+    hostname: ctx.process.hostname,
+    pid: ctx.process.pid,
+    processStartedAt: ctx.process.startedAt,
+    log: ctx.log,
+  });
+}
+
+/** preflight + хранилище проекта: начало любой команды, кроме doctor. */
+export async function startCommand(ctx: AppContext): Promise<Preflight & { store: ProjectStore }> {
+  const pf = await preflight(ctx);
+  return { ...pf, store: openProject(ctx, pf) };
 }

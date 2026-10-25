@@ -33,20 +33,30 @@ export async function sandbox(policy?: string | Uint8Array, opts: { git?: boolea
   return { root, home, project, policyPath };
 }
 
-export type RunResult = { code: number; stdout: string; stderr: string };
+export type RunResult = { code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string };
 
-function run(file: string, args: string[], cwd: string, env: Record<string, string> = {}): Promise<RunResult> {
+function run(
+  file: string,
+  args: string[],
+  cwd: string,
+  env: Record<string, string> = {},
+  input?: string,
+): Promise<RunResult> {
   return new Promise((resolve) => {
-    execFile(file, args, { cwd, env: { ...process.env, ...env } }, (error, stdout, stderr) => {
-      const code = error ? (typeof error.code === "number" ? error.code : 1) : 0;
-      resolve({ code, stdout, stderr });
+    const child = execFile(file, args, { cwd, env: { ...process.env, ...env } }, (error, stdout, stderr) => {
+      const signal = (error as { signal?: NodeJS.Signals } | null)?.signal ?? null;
+      const code = error ? (typeof error.code === "number" ? error.code : signal ? null : 1) : 0;
+      resolve({ code, signal, stdout, stderr });
     });
+    // Процесс может завершиться, не прочитав stdin
+    child.stdin?.on("error", () => undefined);
+    child.stdin?.end(input ?? "");
   });
 }
 
-/** Запуск собранного CLI: `node dist/cli.js …` с подменённым HOME. */
-export function runCli(sb: Sandbox, args: string[], env: Record<string, string> = {}): Promise<RunResult> {
-  return run(process.execPath, [cliPath, ...args], sb.project, { HOME: sb.home, NO_COLOR: "1", ...env });
+/** Запуск собранного CLI: `node dist/cli.js …` с подменённым HOME. TZ=UTC — время в выводе детерминировано. */
+export function runCli(sb: Sandbox, args: string[], opts: { env?: Record<string, string>; input?: string } = {}): Promise<RunResult> {
+  return run(process.execPath, [cliPath, ...args], sb.project, { HOME: sb.home, NO_COLOR: "1", TZ: "UTC", ...opts.env }, opts.input);
 }
 
 export { run as runProcess };

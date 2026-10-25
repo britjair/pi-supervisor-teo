@@ -4,12 +4,12 @@ CLI `sdlc` ведёт задачу через SDLC-процесс, описан�
 
 ## Статус
 
-Реализован этап M1 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)):
+Готовы этапы M1 и M2 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)):
 
 - загрузчик и валидатор Policy (`src/policy/`): preflight, front matter, схема, граф, hash, структурный diff, снимки;
-- определение project root;
-- `sdlc doctor` — окружение, Policy, project root. Проверки Pi появятся в M4, хранилища — в M2;
-- остальные команды выполняют preflight Policy и сообщают, что ещё не реализованы.
+- хранилище `.sdlc/` (`src/state/`): атомарная запись, `state.json` с инвариантами и outbox, журнал событий с ремонтом хвоста, обнаружение подмены state, `index.json`, project lock с takeover и heartbeat;
+- команды `sdlc` (меню, пока линейное), `new` (создаёт задачу, workflow не запускает), `status`, `history`, `cancel`, `doctor` (окружение, Policy, хранилище; без `--fix`);
+- `resume` и `recover` выполняют preflight и сообщают, что ещё не реализованы. Агенты и supervisor — M3/M4, Ink-интерфейс — M5.
 
 ## Разработка
 
@@ -17,6 +17,7 @@ CLI `sdlc` ведёт задачу через SDLC-процесс, описан�
 
 ```bash
 scripts/dev.sh npm ci            # зависимости по lockfile
+# Контекст docker закреплён в scripts/dev.sh: orbstack (переопределяется SDLC_DEV_DOCKER_CONTEXT)
 scripts/dev.sh npm run check     # typecheck + lint + build + тесты
 scripts/dev.sh npm test          # только тесты (dist/ собирается перед ними)
 SDLC_DEV_REBUILD=1 scripts/dev.sh true   # пересобрать образ
@@ -33,7 +34,8 @@ scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi && cp examples/SDLC.md /tmp/h/.pi/SDLC
 - `test/fixtures/policies/invalid/<CODE>.md` — по фикстуре на каждую ошибку. Маркер `# expect: CODE` стоит на строке, где должна сообщаться ошибка: тест сверяет коды и номера строк со всеми маркерами. `# expect-unlocated: CODE` — ошибка без номера строки.
 - `test/fixtures/policies/valid/` и `examples/SDLC.md` должны загружаться. Предупреждения отмечаются маркером `# warn: CODE`.
 - `test/unit/no-process-literals.test.ts` (критерий приёмки 2): ни один строковый литерал в `src/` не совпадает с id этапа или агента из фикстур и не содержит название этапа.
-- `test/integration/cli-preflight.test.ts` запускает собранный `dist/cli.js` с подменённым `HOME`.
+- `test/integration/*.test.ts` запускают собранный `dist/cli.js` с подменённым `HOME` и `TZ=UTC`. Сбой в именованной точке включается переменной `SDLC_FAULT=after-state-commit:kill` (D27): так тест убивает процесс между записью state и журналом.
+- Меню и формы тестируются in-process через `ScriptedHumanIO` (`test/helpers/`).
 
 ## Запуск на хосте (открытый вопрос Q4)
 

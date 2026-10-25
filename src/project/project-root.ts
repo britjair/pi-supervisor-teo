@@ -21,3 +21,23 @@ export async function detectProjectRoot(cwd: string, exec: Exec): Promise<Projec
   }
   return { root: await realpath(cwd), source: "cwd" };
 }
+
+/** Ветка и чистота рабочего дерева для формы создания задачи; null — не git или git недоступен. */
+export async function gitSummary(root: string, exec: Exec): Promise<{ branch: string; clean: boolean } | null> {
+  try {
+    const opts = { cwd: root, env: GIT_ENV, timeoutMs: 10_000 };
+    const [branch, status] = await Promise.all([
+      exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts),
+      exec("git", ["status", "--porcelain", "--", ".", ":(exclude).sdlc"], opts),
+    ]);
+    if (branch.code !== 0 || status.code !== 0) {
+      // Репозиторий без коммитов: HEAD ещё не указывает на ветку
+      const sym = await exec("git", ["symbolic-ref", "--short", "HEAD"], opts);
+      if (sym.code !== 0 || status.code !== 0) return null;
+      return { branch: sym.stdout.trim(), clean: status.stdout.trim() === "" };
+    }
+    return { branch: branch.stdout.trim(), clean: status.stdout.trim() === "" };
+  } catch {
+    return null;
+  }
+}

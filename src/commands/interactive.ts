@@ -1,0 +1,170 @@
+// sdlc без аргументов: меню (05-cli-ui.md §3). Пока линейное; Ink-версия — M5.
+// Меню только читает; lock берётся, когда выбрано mutating-действие.
+
+import { startCommand, type AppContext } from "../app.js";
+import { isFinished } from "../domain/task-state.js";
+import { ExitCode, SdlcError, UserAbortError } from "../errors/errors.js";
+import type { ProjectStore } from "../state/project-store.js";
+import type { Choice, HumanIO } from "../ui/human-io.js";
+import { msg, nextActionText } from "../ui/messages.js";
+import { renderError } from "../ui/plain/errors.js";
+import { taskRows } from "../ui/plain/task-views.js";
+import { formatWhen } from "../util/time.js";
+import { tildify } from "../util/strings.js";
+import { cancelTask } from "./cancel.js";
+import { eventsText } from "./history.js";
+import { createTask, createdText, newTaskForm } from "./new.js";
+import { statusText, summaryText } from "./status.js";
+import { byUpdatedDesc, listViews, taskView, type TaskView } from "./task-view.js";
+
+const MENU_EVENTS = 20;
+
+type MenuChoice = { kind: "create" } | { kind: "task"; key: string } | { kind: "corrupted"; key: string } | { kind: "finished" } | { kind: "exit" };
+
+function header(ctx: AppContext, store: ProjectStore): string {
+  const p = store.policy;
+  return [
+    ctx.style.bold(msg.menu.title),
+    msg.menu.project(store.layout.projectRoot),
+    msg.menu.policy(tildify(p.path, ctx.homeDir), p.hash, Object.keys(p.spec.workflow.stages).length),
+    "",
+  ].join("\n");
+}
+
+/** Ошибка действия в меню: показать и вернуться в меню. Ctrl+C и непредвиденные ошибки — наружу. */
+async function guarded(ctx: AppContext, human: HumanIO, action: () => Promise<void>): Promise<void> {
+  try {
+    await action();
+  } catch (err) {
+    if (err instanceof UserAbortError || !(err instanceof SdlcError)) throw err;
+    human.print("\n" + renderError(err, { homeDir: ctx.homeDir, style: ctx.style, now: ctx.clock.now(), verbose: ctx.verbose }));
+  }
+}
+
+async function createFlow(ctx: AppContext, human: HumanIO, store: ProjectStore): Promise<void> {
+  const input = await newTaskForm(ctx, human, store, {});
+  if (!input) return;
+  const state = await createTask(store, input);
+  human.print(createdText(store, state) + "\n");
+}
+
+function resumeText(ctx: AppContext, v: TaskView): string {
+  const now = ctx.clock.now();
+  const last = v.lastEvent ? `${formatWhen(v.lastEvent.event.timestamp, now)} ${v.lastEvent.event.type}` : msg.status.none;
+  return [
+    ctx.style.bold(msg.resume.title(v.key, v.state.title)),
+    "",
+    msg.resume.stage(v.stageTitle ?? msg.menu.stageMissing(v.state.stage)),
+    msg.resume.lastEvent(last),
+    msg.resume.next(nextActionText(v.next, { key: v.key, now })),
+    "",
+    ctx.style.yellow(msg.resume.notImplemented),
+    "",
+  ].join("\n");
+}
+
+async function taskMenu(ctx: AppContext, human: HumanIO, store: ProjectStore, key: string): Promise<void> {
+  for (;;) {
+    const now = ctx.clock.now();
+    const view = await taskView(store, await store.tasks.read(key), await store.locks.inspect(), now);
+    const finished = isFinished(view.state);
+    type Action = "resume" | "status" | "history" | "cancel" | "back";
+    const choices: Array<Choice<Action>> = [
+      ...(finished ? [] : [{ label: msg.menu.taskActions.resume, value: "resume" as const }]),
+      { label: msg.menu.taskActions.status, value: "status" },
+      { label: msg.menu.taskActions.history, value: "history" },
+      ...(finished ? [] : [{ label: msg.menu.taskActions.cancel, value: "cancel" as const }]),
+      { label: msg.menu.back, value: "back", key: "q" },
+    ];
+    const title = `${key} · ${view.stageTitle ?? view.state.stage} · ${nextActionText(view.next, { key, now })}`;
+    const action = await human.select(title, choices);
+    switch (action) {
+      case "back":
+        return;
+      case "resume":
+        human.print("\n" + resumeText(ctx, view));
+        break;
+      case "status":
+        human.print("\n" + (await statusText(ctx, store, key)));
+        break;
+      case "history":
+        human.print("\n" + (await eventsText(ctx, store, key, MENU_EVENTS)));
+        break;
+      case "cancel": {
+        let done = false;
+        await guarded(ctx, human, async () => {
+          done = await cancelTask(store, key, { human });
+          human.print((done ? msg.cancel.done(key) : msg.cancel.declined) + "\n");
+        });
+        if (done) return;
+        break;
+      }
+    }
+  }
+}
+
+async function finishedMenu(ctx: AppContext, human: HumanIO, store: ProjectStore, views: TaskView[]): Promise<void> {
+  const rows = taskRows(views.map((view) => ({ ok: true as const, view })), { now: ctx.clock.now(), style: ctx.style });
+  const key = await human.select<string | null>(msg.menu.finishedTitle, [
+    ...views.map((v, i) => ({ label: rows[i] ?? v.key, value: v.key })),
+    { label: msg.menu.back, value: null, key: "q" },
+  ]);
+  if (key) await taskMenu(ctx, human, store, key);
+}
+
+export async function runInteractive(ctx: AppContext): Promise<number> {
+  const { store } = await startCommand(ctx);
+  const human = ctx.human;
+  if (!human) {
+    // Без терминала меню недоступно: список задач и подсказка (05-cli-ui.md §5)
+    const now = ctx.clock.now();
+    ctx.stdout.write(header(ctx, store) + "\n" + summaryText(ctx, await listViews(store, await store.locks.inspect(), now), now));
+    ctx.stdout.write("\n" + msg.menu.nonInteractiveHint + "\n");
+    return ExitCode.ok;
+  }
+
+  for (let first = true; ; first = false) {
+    const now = ctx.clock.now();
+    const views = await listViews(store, await store.locks.inspect(), now);
+    const ok = views.flatMap((v) => (v.ok ? [v.view] : [])).sort(byUpdatedDesc);
+    const active = ok.filter((v) => !isFinished(v.state));
+    const finished = ok.filter((v) => isFinished(v.state));
+    const corrupted = views.filter((v) => !v.ok).map((v) => v.key);
+
+    human.print(header(ctx, store));
+    // Незавершённых задач нет — сразу форма создания (05-cli-ui.md §3)
+    if (first && active.length === 0 && corrupted.length === 0) {
+      await guarded(ctx, human, () => createFlow(ctx, human, store));
+      continue;
+    }
+
+    const rows = taskRows(
+      [...active.map((view) => ({ ok: true as const, view })), ...corrupted.map((key) => ({ ok: false as const, key }))],
+      { now, style: ctx.style },
+    );
+    const choices: Array<Choice<MenuChoice>> = [
+      { label: msg.menu.create, value: { kind: "create" } },
+      ...active.map((v, i) => ({ label: rows[i] ?? v.key, value: { kind: "task" as const, key: v.key } })),
+      ...corrupted.map((key, i) => ({ label: rows[active.length + i] ?? key, value: { kind: "corrupted" as const, key } })),
+      ...(finished.length > 0 ? [{ label: msg.menu.finished(finished.length), value: { kind: "finished" as const } }] : []),
+      { label: msg.menu.exit, value: { kind: "exit" }, key: "q" },
+    ];
+    const choice = await human.select(msg.menu.question, choices);
+    switch (choice.kind) {
+      case "exit":
+        return ExitCode.ok;
+      case "create":
+        await guarded(ctx, human, () => createFlow(ctx, human, store));
+        break;
+      case "task":
+        await guarded(ctx, human, () => taskMenu(ctx, human, store, choice.key));
+        break;
+      case "corrupted":
+        human.print(msg.menu.corruptedHint(choice.key) + "\n");
+        break;
+      case "finished":
+        await guarded(ctx, human, () => finishedMenu(ctx, human, store, finished));
+        break;
+    }
+  }
+}

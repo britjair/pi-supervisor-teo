@@ -2,14 +2,21 @@
 // Pi SDK, модели и пробная сессия — M4; хранилище .sdlc — M2. Без --fix ничего не меняет.
 
 import { constants } from "node:fs";
-import { access, stat } from "node:fs/promises";
-import type { AppContext } from "../app.js";
+import { access, readFile, stat } from "node:fs/promises";
+import path from "node:path";
+import { openProject, type AppContext } from "../app.js";
 import { agentList, type LoadedPolicy } from "../domain/policy.js";
 import { ExitCode, PolicyError, UsageError } from "../errors/errors.js";
 import { detectProjectRoot } from "../project/project-root.js";
-import { projectLayout } from "../state/layout.js";
+import { GITIGNORE_CONTENT } from "../state/layout.js";
+import { holderOf } from "../state/lock-manager.js";
+import { indexMatches } from "../state/index-store.js";
+import type { ProjectStore } from "../state/project-store.js";
+import { undeliveredOutbox } from "../state/state-store.js";
+import { TaskCorruptedError } from "../errors/errors.js";
 import { msg } from "../ui/messages.js";
 import { issueLines, policyProblemLines } from "../ui/plain/policy-report.js";
+import { lockText } from "../ui/plain/task-views.js";
 import { tildify } from "../util/strings.js";
 
 export type CheckLevel = "ok" | "info" | "warning" | "error" | "skipped";
@@ -106,19 +113,133 @@ export async function collectDoctorChecks(ctx: AppContext): Promise<{ checks: Do
     checks.push({ id: "project.access", level: "error", title: msg.doctor.projectAccessFailed(code), details: [] });
   }
 
-  // Хранилище
-  const layout = projectLayout(project.root);
-  const sdlcExists = await stat(layout.sdlcDir).then(
-    (st) => st.isDirectory(),
-    () => false,
-  );
-  checks.push(
-    sdlcExists
-      ? { id: "storage", level: "skipped", title: msg.doctor.sdlcSkipped, details: [] }
-      : { id: "storage", level: "info", title: msg.doctor.sdlcAbsent, details: [] },
-  );
+  // Хранилище: только если .sdlc уже есть, doctor его не создаёт
+  const store = openProject(ctx, { project, policy });
+  if (await store.sdlcExists()) {
+    checks.push(...(await storageChecks(ctx, store)));
+  } else {
+    checks.push({ id: "storage", level: "info", title: msg.doctor.sdlcAbsent, details: [] });
+  }
 
   return { checks, policyValid: policy !== null };
+}
+
+/** Свежий heartbeat живого владельца: проект просто занят, это не проблема. */
+const LIVE_HEARTBEAT_MS = 30_000;
+
+async function storageChecks(ctx: AppContext, store: ProjectStore): Promise<DoctorCheck[]> {
+  const out: DoctorCheck[] = [];
+  const now = ctx.clock.now();
+  const S = msg.storage;
+  const layout = store.layout;
+
+  const gitignore = await readFile(layout.gitignore, "utf8").catch(() => null);
+  out.push(
+    gitignore === GITIGNORE_CONTENT
+      ? { id: "storage.gitignore", level: "ok", title: S.gitignoreOk, details: [] }
+      : { id: "storage.gitignore", level: "info", title: S.gitignoreMissing, details: [] },
+  );
+
+  const lock = await store.locks.inspect();
+  const lockLine = lockText(lock, now);
+  if (lock.kind === "none") {
+    out.push({ id: "storage.lock", level: "ok", title: S.lockFree, details: [] });
+  } else if (lock.kind === "unreadable") {
+    out.push({ id: "storage.lock", level: "warning", title: S.lockUnreadable, details: [] });
+  } else if (lock.alive === null) {
+    out.push({ id: "storage.lock", level: "warning", title: S.lockForeign(lockLine), details: [] });
+  } else if (!lock.alive) {
+    out.push({ id: "storage.lock", level: "warning", title: S.lockDead(lockLine), details: [] });
+  } else {
+    const age = now.getTime() - new Date(holderOf(lock)?.heartbeatAt ?? 0).getTime();
+    out.push(
+      age <= LIVE_HEARTBEAT_MS
+        ? { id: "storage.lock", level: "info", title: S.lockLive(lockLine), details: [] }
+        : { id: "storage.lock", level: "warning", title: S.lockStaleHeartbeat(lockLine), details: [] },
+    );
+  }
+
+  // Задачи: state.json и инварианты
+  const listings = await store.listTasks();
+  const valid = listings.flatMap((l) => (l.ok ? [l.snapshot.state] : []));
+  const corrupted = listings.flatMap((l) => (l.ok ? [] : [l.error]));
+  if (corrupted.length > 0) {
+    out.push({
+      id: "storage.tasks",
+      level: "error",
+      title: S.taskCorrupted(corrupted.length),
+      details: corrupted.flatMap((e) => e.message.split("\n")),
+      count: corrupted.length,
+    });
+  }
+  out.push({
+    id: "storage.tasks.ok",
+    level: valid.length > 0 || corrupted.length > 0 ? "ok" : "info",
+    title: valid.length > 0 || corrupted.length > 0 ? S.tasksOk(valid.length) : S.tasksNone,
+    details: [],
+  });
+
+  // Журналы: целостность и доставка outbox
+  const journalErrors: string[] = [];
+  const journalWarnings: string[] = [];
+  for (const state of valid) {
+    try {
+      const { events, broken } = await store.tasks.journal(state.key).readAll();
+      if (broken) journalWarnings.push(S.journalBrokenTail(state.key, broken.bytes.length));
+      const undelivered = undeliveredOutbox(state, events);
+      if (undelivered.length > 0) journalWarnings.push(S.journalUndelivered(state.key, undelivered.length));
+    } catch (err) {
+      if (!(err instanceof TaskCorruptedError)) throw err;
+      journalErrors.push(S.journalCorrupted(state.key, err.line));
+    }
+  }
+  if (journalErrors.length > 0) {
+    out.push({ id: "storage.events.corrupted", level: "error", title: S.journalProblems(journalErrors.length), details: journalErrors, count: journalErrors.length });
+  }
+  if (journalWarnings.length > 0) {
+    out.push({ id: "storage.events", level: "warning", title: S.journalProblems(journalWarnings.length), details: journalWarnings, count: journalWarnings.length });
+  }
+  if (valid.length > 0 && journalErrors.length + journalWarnings.length === 0) {
+    out.push({ id: "storage.events", level: "ok", title: S.journalOk, details: [] });
+  }
+
+  // Ссылки state на файлы: run всегда, сессия — когда run уже завершился (файл появляется с первым сообщением)
+  const missing: string[] = [];
+  const exists = (p: string) => stat(p).then(() => true, () => false);
+  for (const state of valid) {
+    const run = state.currentRun;
+    if (!run) continue;
+    const t = store.tasks.task(state.key);
+    const runFile = path.join(t.runsDir, `${run.runId}.json`);
+    if (!(await exists(runFile))) missing.push(S.refMissing(state.key, path.relative(t.dir, runFile)));
+    if ((run.status === "settled" || run.status === "failed") && !(await exists(path.join(t.dir, run.sessionFile)))) {
+      missing.push(S.refMissing(state.key, run.sessionFile));
+    }
+  }
+  if (missing.length > 0) {
+    out.push({ id: "storage.refs", level: "warning", title: S.refsMissing(missing.length), details: missing, count: missing.length });
+  } else if (valid.some((s) => s.currentRun)) {
+    out.push({ id: "storage.refs", level: "ok", title: S.refsOk, details: [] });
+  }
+
+  out.push(
+    indexMatches(await store.index.read(), valid)
+      ? { id: "storage.index", level: "ok", title: S.indexOk, details: [] }
+      : { id: "storage.index", level: "warning", title: S.indexStale, details: [] },
+  );
+
+  const orphans = await store.findOrphans();
+  out.push(
+    orphans.length === 0
+      ? { id: "storage.orphans", level: "ok", title: S.orphansNone, details: [] }
+      : {
+          id: "storage.orphans",
+          level: "info",
+          title: S.orphans(orphans.length),
+          details: orphans.map((p) => path.relative(layout.sdlcDir, p)),
+        },
+  );
+  return out;
 }
 
 export function renderDoctor(ctx: AppContext, checks: readonly DoctorCheck[]): string {

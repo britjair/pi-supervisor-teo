@@ -1,9 +1,15 @@
 // Каталог строк интерфейса (ru), 05-cli-ui.md §1. Тексты из Policy выводятся как есть.
 // Модуль без зависимостей от I/O: только функции «данные → строка».
 
+import type { TaskEvent } from "../domain/events.js";
+import type { NextAction } from "../domain/next-action.js";
 import type { PolicyErrorCode, PolicyIssue, PolicyIssueParam } from "../domain/policy.js";
+import type { AgentInputKind, SupervisorTriggerKind, TaskStatus } from "../domain/task-state.js";
+import type { LockHolder } from "../errors/errors.js";
 import type { PolicyDiffEntry } from "../policy/policy-diff.js";
+import type { TaskKeyProblem } from "../state/task-key.js";
 import { plural, shortHash } from "../util/strings.js";
+import { formatAgo, formatDuration, formatWhen } from "../util/time.js";
 
 type Params = Record<string, PolicyIssueParam>;
 
@@ -251,6 +257,192 @@ export const msg = {
     },
   },
 
+  input: {
+    choicePrompt: (n: number) => `Выбор [1-${n}]: `,
+    badChoice: (n: number) => `Введите номер от 1 до ${n}.`,
+    yesNo: (def: boolean) => (def ? "[Д/н]" : "[д/Н]"),
+    badYesNo: "Ответьте «д» или «н».",
+    multilineHint: "(пустая строка или Ctrl+D — завершить ввод)",
+    interrupted: "Остановлено пользователем.",
+    closed: "Ввод закрыт.",
+  },
+
+  menu: {
+    title: "Контроллер SDLC",
+    project: (root: string) => `Проект: ${root}`,
+    policy: (p: string, hash: string, stages: number) => `Policy: ${p} · ${shortHash(hash)} · ${plurals.stages(stages)}`,
+    question: "Что вы хотите сделать?",
+    create: "Создать новую задачу",
+    finished: (n: number) => `Показать завершённые задачи (${n})`,
+    finishedTitle: "Завершённые задачи",
+    exit: "Выход",
+    back: "Назад",
+    corrupted: (key: string) => `⚠ ${key} повреждена`,
+    corruptedHint: (key: string) => `Задача ${key} повреждена и не открывается. Подробности: sdlc doctor`,
+    stageMissing: (stage: string) => `⚠ этап «${stage}» отсутствует в Policy`,
+    taskActions: {
+      resume: "Продолжить",
+      status: "Показать статус",
+      history: "Показать историю",
+      cancel: "Отменить задачу",
+    },
+    nonInteractiveHint: [
+      "Команды:",
+      "  sdlc new KEY --title T --description-file F   создать задачу",
+      "  sdlc status [KEY]                             состояние",
+      "  sdlc history [KEY]                            задачи и журнал событий",
+      "  sdlc cancel KEY --reason R                    отменить задачу",
+    ].join("\n"),
+    noTasks: "В проекте нет задач.",
+    pressEnter: "Enter — продолжить",
+  },
+
+  resume: {
+    title: (key: string, title: string) => `Продолжаем ${key} · ${title}`,
+    stage: (t: string) => `Текущий этап:        ${t}`,
+    lastEvent: (t: string) => `Последнее событие:   ${t}`,
+    next: (t: string) => `Следующее действие:  ${t}`,
+    notImplemented: "Запуск агентов и supervisor ещё не реализован (этап M3): задача остаётся в сохранённой фазе.",
+  },
+
+  newTask: {
+    title: "Новая задача",
+    projectRoot: (root: string, git: string | null) => `Проект: ${root}${git ? `   (${git})` : ""}`,
+    gitSummary: (branch: string, clean: boolean) => `git: ${branch}, ${clean ? "чисто" : "есть незакоммиченные изменения"}`,
+    key: "Ключ задачи",
+    taskTitle: "Название",
+    description: "Описание",
+    initialStage: (title: string, agent: string) => `Начальный этап: ${title} (agent: ${agent})`,
+    create: "Создать",
+    edit: "Изменить",
+    cancel: "Отмена",
+    summary: (key: string, title: string) => `${key} · ${title}`,
+    created: (key: string, stage: string, agent: string) => `✓ Задача ${key} создана · этап «${stage}» · agent ${agent}`,
+    notStarted: (key: string) =>
+      `Запуск агентов ещё не реализован (этап M3): задача ждёт запуска агента. Состояние: sdlc status ${key}`,
+    keyProblem: (p: TaskKeyProblem | "duplicate", key: string, existing?: string) => {
+      switch (p) {
+        case "empty":
+          return "Ключ не может быть пустым.";
+        case "format":
+          return "Ключ: латинские буквы, цифры, «.», «_» и «-», начинается с буквы или цифры, не длиннее 100 символов.";
+        case "dots":
+          return "Ключ не может быть «.» или «..».";
+        case "trailing_dot":
+          return "Ключ не может заканчиваться точкой.";
+        case "reserved":
+          return `«${key}» — зарезервированное имя в Windows.`;
+        case "duplicate":
+          return existing && existing !== key
+            ? `Задача «${existing}» уже есть в проекте (ключи сравниваются без учёта регистра).`
+            : `Задача «${key}» уже есть в проекте.`;
+      }
+    },
+    titleEmpty: "Название не может быть пустым.",
+    titleMultiline: "Название должно быть одной строкой.",
+    titleTooLong: (max: number) => `Название длиннее ${max} символов.`,
+    descriptionEmpty: "Описание не может быть пустым.",
+    missingFields: (fields: string[]) =>
+      `Без терминала все поля обязательны. Не указано: ${fields.join(", ")}.\nПример: sdlc new PAY-142 --title "Оплата через СБП" --description-file task.txt`,
+    descriptionConflict: "Укажите описание одним способом: --description или --description-file.",
+    descriptionFileUnreadable: (file: string, code: string) => `Не удалось прочитать файл описания ${file} (${code}).`,
+  },
+
+  cancel: {
+    confirm: (key: string, title: string) => `Отменить задачу ${key} · ${title}? Отмену нельзя откатить.`,
+    reason: "Причина отмены",
+    reasonEmpty: "Причина не может быть пустой.",
+    reasonRequired: "Без терминала нужно указать причину: sdlc cancel KEY --reason \"…\"",
+    done: (key: string) => `✓ Задача ${key} отменена.`,
+    declined: "Задача не отменена.",
+    alreadyFinished: (key: string, status: TaskStatus) =>
+      `Задача ${key} уже ${status === "cancelled" ? "отменена" : "завершена"}: отменять нечего.`,
+    journalNote: "Причина сохраняется в журнал задачи дословно.",
+  },
+
+  lock: {
+    conflictTitle: "Проект занят другим процессом sdlc",
+    holder: (h: NonNullable<LockHolder>, now: Date) =>
+      `  PID ${h.pid} на ${h.hostname}${h.taskKey ? `, задача ${h.taskKey}` : ""}, команда ${h.command}, heartbeat ${formatAgo(h.heartbeatAt, now)}`,
+    holderUnknown: "  Lock-файл только что создан или повреждён: sdlc doctor покажет подробности.",
+    viewStatus: (key: string | null) => `Посмотреть состояние: sdlc status${key ? ` ${key}` : ""}`,
+    statusLine: (h: NonNullable<LockHolder>, now: Date, alive: boolean | null) =>
+      `PID ${h.pid} на ${h.hostname}${h.taskKey ? ` · задача ${h.taskKey}` : ""} · heartbeat ${formatAgo(h.heartbeatAt, now)}` +
+      (alive === false ? " · процесс не найден (lock протух)" : alive === null ? " · другой хост" : ""),
+    free: "свободен",
+    unreadable: "файл есть, но не разбирается",
+  },
+
+  status: {
+    header: (key: string, title: string) => `${key} · ${title}`,
+    labels: {
+      project: "Проект",
+      stage: "Этап",
+      status: "Статус",
+      agent: "Агент",
+      lastEvent: "Последнее событие",
+      lastDecision: "Последнее решение",
+      next: "Следующее действие",
+      policy: "Policy",
+      lock: "Lock",
+      usage: "Расход",
+      reason: "Причина",
+    },
+    stage: (title: string | null, id: string, enteredAt: string, cycles: number, now: Date) =>
+      `${title ?? `⚠ отсутствует в Policy`} (${id}) · вход ${formatWhen(enteredAt, now)}, ${cycles} ${plural(cycles, "цикл", "цикла", "циклов")}`,
+    status: (status: TaskStatus, phase: string) => `${statusName(status)} (${status}) · фаза ${phase}`,
+    agent: (agentId: string, attempt: number, runId: string, run: string) =>
+      `${agentId} · попытка ${attempt} · run ${runId.slice(0, 10)}… · ${run}`,
+    noAgent: "ещё не запускался",
+    event: (e: TaskEvent, now: Date, undelivered: boolean) =>
+      `${formatWhen(e.timestamp, now, true)} ${e.type}${undelivered ? " (ещё не в журнале)" : ""}`,
+    decision: (at: string, action: string, summary: string, now: Date) =>
+      `${formatWhen(at, now)} ${action}${summary ? ` — ${summary}` : ""}`,
+    none: "—",
+    policyCurrent: (hash: string) => `${shortHash(hash)} (текущая)`,
+    policyDiffers: (hash: string, current: string) => `${shortHash(hash)} (текущая Policy другая: ${shortHash(current)})`,
+    usage: (inp: number, out: number, cost: number | null) =>
+      `in ${compact(inp)} · out ${compact(out)}${cost !== null ? ` · $${cost.toFixed(2)}` : ""}`,
+    summaryTitle: (n: number) => `Задачи в работе: ${n}`,
+    finishedCount: (n: number) => `Завершённых и отменённых: ${n} (sdlc history)`,
+  },
+
+  history: {
+    tasksTitle: (n: number) => `Задачи проекта: ${n}`,
+    eventsTitle: (key: string, shown: number, total: number) =>
+      shown === total ? `Журнал ${key}: ${total} ${plural(total, "событие", "события", "событий")}` : `Журнал ${key}: последние ${shown} из ${total}`,
+    undelivered: "(ещё не в журнале)",
+    badLimit: (v: string) => `--limit должен быть положительным целым числом, указано «${v}».`,
+  },
+
+  storage: {
+    gitignoreOk: ".sdlc/.gitignore на месте",
+    gitignoreMissing: ".sdlc/.gitignore отсутствует: git status агентов покажет .sdlc (--fix: создать)",
+    lockFree: "Lock проекта свободен",
+    lockLive: (line: string) => `Проект занят: ${line}`,
+    lockStaleHeartbeat: (line: string) =>
+      `Lock с живым PID, но heartbeat давно не обновлялся: ${line}. PID мог быть переиспользован — снимите lock вручную, если sdlc не запущен`,
+    lockDead: (line: string) => `Протухший lock: ${line} (--fix: снять)`,
+    lockForeign: (line: string) => `Lock другого хоста: ${line} (--fix: только с явным подтверждением)`,
+    lockUnreadable: "Lock-файл не разбирается (--fix: снять, если он старше 30 с)",
+    tasksOk: (n: number) => `Задачи: ${n}, state.json и инварианты в порядке`,
+    tasksNone: "Задач в проекте нет",
+    taskCorrupted: (n: number) => `Повреждённых задач: ${n}`,
+    journalOk: "Журналы событий целы, outbox доставлен",
+    journalProblems: (n: number) => `Проблемы журналов событий: ${n}`,
+    journalBrokenTail: (key: string, bytes: number) => `${key}: оборванная последняя запись (${bytes} байт) (--fix: обрезать хвост)`,
+    journalCorrupted: (key: string, line: number | null) => `${key}: невалидная запись в середине журнала${line ? `, строка ${line}` : ""}`,
+    journalUndelivered: (key: string, n: number) =>
+      `${key}: ${n} ${plural(n, "событие", "события", "событий")} outbox не доставлено в журнал (--fix: дописать)`,
+    refsOk: "Ссылки state на файлы сессий и runs в порядке",
+    refsMissing: (n: number) => `Ссылок state на отсутствующие файлы: ${n}`,
+    refMissing: (key: string, file: string) => `${key}: нет файла ${file}`,
+    indexOk: ".sdlc/index.json согласован с задачами",
+    indexStale: ".sdlc/index.json расходится с задачами (--fix: перестроить; перестраивается и сам при следующей mutating-команде)",
+    orphansNone: "Осиротевших временных файлов нет",
+    orphans: (n: number) => `Осиротевших временных файлов: ${n} (--fix: удалить; удаляются и сами при следующей mutating-команде)`,
+  },
+
   doctor: {
     title: "SDLC doctor",
     node: (v: string, min: string) => `Node.js ${v} (нужно ≥ ${min})`,
@@ -262,11 +454,10 @@ export const msg = {
     modelsUsage: (ref: string, users: string[]) => `${ref} (${users.join(", ")})`,
     piSkipped: "Pi SDK, модели, авторизация и пробная сессия — проверки появятся вместе с интеграцией Pi (M4)",
     projectRoot: (root: string, source: "git" | "cwd") =>
-      `Project root ${root} (${source === "git" ? "корень git-репозитория" : "текущий каталог, git-репозиторий не найден"})`,
-    projectAccess: "Права на чтение и запись project root",
-    projectAccessFailed: (code: string) => `Нет прав на чтение и запись project root (${code})`,
+      `Проект ${root} (${source === "git" ? "корень git-репозитория" : "текущий каталог, git-репозиторий не найден"})`,
+    projectAccess: "Права на чтение и запись каталога проекта",
+    projectAccessFailed: (code: string) => `Нет прав на чтение и запись каталога проекта (${code})`,
     sdlcAbsent: "Каталога .sdlc нет: задач в проекте ещё нет",
-    sdlcSkipped: "Каталог .sdlc есть — проверки хранилища, задач и lock появятся вместе с хранилищем (M2)",
     fixNotImplemented: "doctor --fix ещё не реализован (M6). Без --fix doctor ничего не меняет.",
     summary: (errors: number, warnings: number) =>
       errors === 0 && warnings === 0
@@ -310,4 +501,163 @@ export function policyDiffLine(e: PolicyDiffEntry): { mark: "+" | "-" | "~"; tex
 
 function fmt(v: unknown): string {
   return v === null || v === undefined ? "—" : String(v);
+}
+
+function compact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
+const STATUS_NAMES: Record<TaskStatus, string> = {
+  active: "в работе",
+  waiting_human: "ждёт ответа",
+  interrupted: "прервана",
+  blocked: "заблокирована",
+  terminal: "завершена",
+  cancelled: "отменена",
+};
+
+export function statusName(status: TaskStatus): string {
+  return STATUS_NAMES[status];
+}
+
+const TRIGGERS: Record<SupervisorTriggerKind, (agent: string) => string> = {
+  agent_settled: (a) => `supervisor проверит результат ${a}`,
+  recheck_settled: (a) => `supervisor проверит результат перепроверки ${a}`,
+  human_responded: () => "supervisor обработает ответ пользователя",
+  policy_changed: () => "supervisor учтёт изменённую Policy",
+  unblocked: () => "supervisor учтёт комментарий при разблокировке",
+  recovered: () => "supervisor разберёт прерванный ход агента",
+  reevaluate: () => "supervisor повторит прерванный цикл оценки",
+};
+
+const AGENT_INPUT: Record<AgentInputKind, (agent: string) => string> = {
+  initial: (a) => `запустить agent ${a}`,
+  continue: (a) => `продолжить agent ${a} по замечанию supervisor`,
+  restart: (a) => `перезапустить agent ${a}`,
+  recovery: (a) => `продолжить agent ${a} после сбоя`,
+  recheck: (a) => `agent ${a} выполнит перепроверку`,
+};
+
+const clip = (s: string, n = 80) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+/** Текст «Следующее действие» (05-cli-ui.md §6). */
+export function nextActionText(a: NextAction, ctx: { key: string; now: Date }): string {
+  switch (a.kind) {
+    case "start_agent":
+      return AGENT_INPUT[a.inputKind](a.agentId ?? "этапа");
+    case "agent_running":
+      return a.live
+        ? `agent ${a.agentId ?? "этапа"} работает`
+        : `agent ${a.agentId ?? "этапа"} прерван — будет восстановлен при sdlc resume ${ctx.key}`;
+    case "supervisor_evaluate":
+      return a.trigger ? TRIGGERS[a.trigger](a.agentId ?? "агента") : "supervisor оценит состояние задачи";
+    case "supervisor_running":
+      return a.live ? "supervisor принимает решение" : `supervisor прерван — цикл повторится при sdlc resume ${ctx.key}`;
+    case "apply_decision":
+      return `применить решение ${a.action ?? ""}`.trim();
+    case "waiting_human":
+      return `ждёт ответа пользователя${a.fromAgent ? " (вопрос агента)" : ""}: ${clip(a.question)}`;
+    case "waiting_recheck": {
+      if (a.overdue) return `перепроверка просрочена — начнётся при sdlc resume ${ctx.key}`;
+      const left = formatDuration(new Date(a.dueAt).getTime() - ctx.now.getTime());
+      const base = `перепроверка в ${formatWhen(a.dueAt, ctx.now)} (через ${left}): ${clip(a.waitingFor)}`;
+      return a.live ? base : `${base}; sdlc resume ${ctx.key} (--now — сразу)`;
+    }
+    case "terminal":
+      return "завершена";
+    case "cancelled":
+      return "отменена";
+    case "blocked":
+      return `заблокирована${a.reason ? `: ${clip(a.reason)}` : a.code ? `: ${a.code}` : ""} — sdlc resume ${ctx.key}`;
+  }
+}
+
+/** Короткий статус задачи для строки меню. */
+export function statusBadge(a: NextAction, ctx: { now: Date; livePid: number | null; interrupted: boolean }): string {
+  switch (a.kind) {
+    case "agent_running":
+      return a.live ? `● агент работает${ctx.livePid ? ` (PID ${ctx.livePid})` : ""}` : "◌ прервана — будет восстановлена";
+    case "supervisor_running":
+      return a.live ? "● supervisor проверяет" : "◌ прервана — будет восстановлена";
+    case "waiting_human":
+      return "? ждёт ответа";
+    case "waiting_recheck":
+      return a.overdue ? "⏳ перепроверка просрочена" : `⏳ перепроверка в ${formatWhen(a.dueAt, ctx.now)}`;
+    case "blocked":
+      return "⛔ заблокирована";
+    case "terminal":
+      return "✓ завершена";
+    case "cancelled":
+      return "✗ отменена";
+    case "start_agent":
+      return ctx.interrupted ? "◌ прервана" : "○ ждёт запуска агента";
+    case "supervisor_evaluate":
+      return ctx.interrupted ? "◌ прервана" : "○ ждёт проверки supervisor";
+    case "apply_decision":
+      return ctx.interrupted ? "◌ прервана" : "○ решение не применено";
+  }
+}
+
+/** Однострочное описание события для истории. */
+export function eventSummary(e: TaskEvent): string {
+  switch (e.type) {
+    case "task.created":
+      return `создана: «${e.payload.title}», этап ${e.payload.stage}`;
+    case "task.cancelled":
+      return `отменена (${e.payload.by}): ${clip(e.payload.reason)}`;
+    case "task.blocked":
+      return `заблокирована ${e.payload.code}: ${clip(e.payload.message)}`;
+    case "task.unblocked":
+      return `разблокирована: ${clip(e.payload.note)}`;
+    case "task.terminal":
+      return `достигнут терминальный этап ${e.payload.stage}`;
+    case "task.resumed":
+      return `продолжена (PID ${e.payload.pid}, фаза ${e.payload.phase})`;
+    case "policy.changed":
+      return `Policy ${shortHash(e.payload.fromHash)} → ${shortHash(e.payload.toHash)} (${e.payload.mode})`;
+    case "stage.transitioned":
+      return `${e.payload.from} → ${e.payload.to}: ${clip(e.payload.reason)}`;
+    case "agent.started":
+      return `${e.payload.agentId}#${e.payload.attempt} запущен на этапе ${e.payload.stage}`;
+    case "agent.settled":
+      return `run ${e.payload.runId.slice(0, 10)}…: ${e.payload.reason}`;
+    case "agent.reported":
+      return `отчёт ${e.payload.kind}: ${clip(e.payload.summary)}`;
+    case "agent.failed":
+      return `ошибка: ${clip(e.payload.error)}`;
+    case "supervisor.started":
+      return `цикл ${e.payload.cycle}${e.payload.trigger ? ` (${e.payload.trigger.kind})` : ""}`;
+    case "supervisor.decision":
+      return `решение ${e.payload.action}`;
+    case "supervisor.note":
+      return clip(e.payload.text);
+    case "decision.applied":
+      return `применено ${e.payload.action}`;
+    case "human.requested":
+      return `вопрос: ${clip(e.payload.question)}`;
+    case "human.responded":
+      return `ответ: ${clip(e.payload.answer)}`;
+    case "wait.scheduled":
+      return `ожидание ${e.payload.number}/${e.payload.maxCount} до ${e.payload.dueAt}: ${clip(e.payload.waitingFor)}`;
+    case "wait.finished":
+      return `ожидание завершено (${e.payload.reason}), ${e.payload.waitedMinutes} мин`;
+    case "runtime.interrupted":
+      return `остановлено${e.payload.signal ? ` сигналом ${e.payload.signal}` : ""} в фазе ${e.payload.phase}`;
+    case "runtime.recovered":
+      return `восстановление: ${e.payload.action}`;
+    default:
+      return "";
+  }
+}
+
+/** Сообщение о занятом проекте (02-storage.md §10.4). */
+export function lockConflictText(holder: LockHolder, now: Date): string {
+  return [
+    msg.lock.conflictTitle,
+    holder ? msg.lock.holder(holder, now) : msg.lock.holderUnknown,
+    "",
+    msg.lock.viewStatus(holder?.taskKey ?? null),
+  ].join("\n");
 }

@@ -40,3 +40,33 @@ export function resolveInside(root: string, relative: string): string | null {
   if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return null;
   return resolved;
 }
+
+export type TaskLayout = {
+  key: string;
+  dir: string;
+  state: string;
+  events: string;
+  runtime: string;
+  taskMd: string;
+  artifactsDir: string;
+  runsDir: string;
+  sessionsDir: string;
+};
+
+/** Пути задачи. `key` должен быть проверен taskKeyProblem(): здесь он только подставляется. */
+export function taskLayout(project: ProjectLayout, key: string): TaskLayout {
+  const dir = path.join(project.tasksDir, key);
+  return {
+    key,
+    dir,
+    state: path.join(dir, "state.json"),
+    events: path.join(dir, "events.jsonl"),
+    runtime: path.join(dir, "runtime.json"),
+    taskMd: path.join(dir, "task.md"),
+    artifactsDir: path.join(dir, "artifacts"),
+    runsDir: path.join(dir, "runs"),
+    sessionsDir: path.join(dir, "sessions"),
+  };
+}
+
+export const GITIGNORE_CONTENT = "*\n";

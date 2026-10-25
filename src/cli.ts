@@ -3,12 +3,18 @@
 
 import { Command, CommanderError, Option } from "commander";
 import { createAppContext, type AppContext } from "./app.js";
+import { runCancel } from "./commands/cancel.js";
 import { runDoctor } from "./commands/doctor.js";
+import { runHistory } from "./commands/history.js";
+import { runInteractive } from "./commands/interactive.js";
+import { runNew } from "./commands/new.js";
 import { runPendingCommand } from "./commands/pending.js";
-import { ExitCode, PolicyError, SdlcError } from "./errors/errors.js";
+import { runStatus } from "./commands/status.js";
+import { ExitCode, SdlcError } from "./errors/errors.js";
 import { msg } from "./ui/messages.js";
-import { renderPolicyError } from "./ui/plain/policy-report.js";
+import { renderError } from "./ui/plain/errors.js";
 import { colorEnabled } from "./ui/plain/style.js";
+import { runCleanup } from "./util/cleanup.js";
 import { closestMatch } from "./util/strings.js";
 
 type GlobalOptions = { color?: boolean; plain?: boolean; verbose?: boolean };
@@ -17,9 +23,9 @@ function contextFor(cmd: Command): AppContext {
   const g = cmd.optsWithGlobals<GlobalOptions>();
   const tty = process.stdout.isTTY === true && process.stderr.isTTY === true;
   return createAppContext({
+    stdin: process.stdin,
     stdout: process.stdout,
     stderr: process.stderr,
-    stdinIsTTY: process.stdin.isTTY === true,
     color: colorEnabled({ isTTY: tty, env: process.env, flag: g.color !== false }),
     plain: g.plain === true,
     verbose: g.verbose === true,
@@ -27,18 +33,8 @@ function contextFor(cmd: Command): AppContext {
 }
 
 function reportError(ctx: AppContext, err: unknown): number {
-  if (err instanceof PolicyError) {
-    ctx.stderr.write(renderPolicyError(err, { homeDir: ctx.homeDir, style: ctx.style }));
-    return err.exitCode;
-  }
-  if (err instanceof SdlcError) {
-    ctx.stderr.write(err.message + "\n");
-    return err.exitCode;
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  ctx.stderr.write(msg.unexpectedError(message) + "\n");
-  ctx.stderr.write((ctx.verbose && err instanceof Error && err.stack ? err.stack : msg.verboseHint) + "\n");
-  return ExitCode.runtime;
+  ctx.stderr.write(renderError(err, { homeDir: ctx.homeDir, style: ctx.style, now: ctx.clock.now(), verbose: ctx.verbose }));
+  return err instanceof SdlcError ? err.exitCode : ExitCode.runtime;
 }
 
 /** Ошибки разбора аргументов commander → русский текст. */
@@ -69,6 +65,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       exitCode = await fn(ctx, cmd);
     } catch (err) {
       exitCode = reportError(ctx, err);
+    } finally {
+      ctx.human?.close();
     }
   };
   const pending = (name: string) => run((ctx) => runPendingCommand(ctx, name));
@@ -96,7 +94,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         exitCode = ExitCode.runtime;
         return;
       }
-      await pending("sdlc")(cmd);
+      await run((ctx) => runInteractive(ctx))(cmd);
     });
 
   program
@@ -106,7 +104,18 @@ export async function main(argv: readonly string[]): Promise<number> {
     .option("--title <title>", msg.cli.optTitle)
     .addOption(new Option("--description-file <file>", msg.cli.optDescriptionFile).conflicts("description"))
     .option("--description <text>", msg.cli.optDescription)
-    .action(pending("new"));
+    .action(
+      run((ctx, cmd) => {
+        const o = cmd.opts<{ title?: string; descriptionFile?: string; description?: string }>();
+        const key = cmd.args[0];
+        return runNew(ctx, {
+          ...(key !== undefined ? { key } : {}),
+          ...(o.title !== undefined ? { title: o.title } : {}),
+          ...(o.descriptionFile !== undefined ? { descriptionFile: o.descriptionFile } : {}),
+          ...(o.description !== undefined ? { description: o.description } : {}),
+        });
+      }),
+    );
 
   program
     .command("resume")
@@ -121,7 +130,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     .description(msg.cli.cmdStatus)
     .argument("[KEY]", msg.cli.argKey)
     .option("--json", msg.cli.json)
-    .action(pending("status"));
+    .action(run((ctx, cmd) => runStatus(ctx, cmd.args[0], { json: cmd.opts<{ json?: boolean }>().json === true })));
 
   program
     .command("history")
@@ -130,14 +139,28 @@ export async function main(argv: readonly string[]): Promise<number> {
     .option("--all", msg.cli.optAll)
     .option("--json", msg.cli.json)
     .option("--limit <n>", msg.cli.optLimit)
-    .action(pending("history"));
+    .action(
+      run((ctx, cmd) => {
+        const o = cmd.opts<{ all?: boolean; json?: boolean; limit?: string }>();
+        return runHistory(ctx, cmd.args[0], {
+          all: o.all === true,
+          json: o.json === true,
+          ...(o.limit !== undefined ? { limit: o.limit } : {}),
+        });
+      }),
+    );
 
   program
     .command("cancel")
     .description(msg.cli.cmdCancel)
     .argument("<KEY>", msg.cli.argKey)
     .option("--reason <reason>", msg.cli.optReason)
-    .action(pending("cancel"));
+    .action(
+      run((ctx, cmd) => {
+        const reason = cmd.opts<{ reason?: string }>().reason;
+        return runCancel(ctx, cmd.args[0] ?? "", reason !== undefined ? { reason } : {});
+      }),
+    );
 
   program
     .command("recover")
@@ -164,6 +187,20 @@ export async function main(argv: readonly string[]): Promise<number> {
     return ExitCode.runtime;
   }
   return exitCode;
+}
+
+/** Остановка по сигналу: освободить lock и выйти (03-engine.md §9). Повторный сигнал — немедленный выход. */
+let stopping = false;
+for (const [signal, code] of [
+  ["SIGINT", ExitCode.sigint],
+  ["SIGTERM", ExitCode.sigterm],
+  ["SIGHUP", ExitCode.sigterm],
+] as const) {
+  process.on(signal, () => {
+    if (stopping) process.exit(code);
+    stopping = true;
+    void runCleanup().finally(() => process.exit(code));
+  });
 }
 
 main(process.argv).then(

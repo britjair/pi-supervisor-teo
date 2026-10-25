@@ -42,9 +42,31 @@ export class ModelResolutionError extends SdlcError {
   override name = "ModelResolutionError";
 }
 
+/** Владелец lock-а проекта, как его видит другой процесс (для сообщения об ошибке). */
+export type LockHolder = {
+  pid: number;
+  hostname: string;
+  taskKey: string | null;
+  command: string;
+  heartbeatAt: string;
+} | null;
+
 export class LockConflictError extends SdlcError {
   readonly exitCode = ExitCode.lock;
   override name = "LockConflictError";
+  constructor(
+    message: string,
+    /** null — файл lock-а есть, но не разбирается (его как раз записывают) */
+    readonly holder: LockHolder,
+  ) {
+    super(message);
+  }
+}
+
+/** Lock проекта перехвачен другим процессом во время работы (02-storage.md §10.3). */
+export class LockLostError extends SdlcError {
+  readonly exitCode = ExitCode.lock;
+  override name = "LockLostError";
 }
 
 export class TaskNotFoundError extends SdlcError {
@@ -55,6 +77,15 @@ export class TaskNotFoundError extends SdlcError {
 export class TaskCorruptedError extends SdlcError {
   readonly exitCode = ExitCode.task;
   override name = "TaskCorruptedError";
+  constructor(
+    readonly taskKey: string,
+    readonly file: string,
+    readonly reason: string,
+    /** Номер строки для повреждённого журнала */
+    readonly line: number | null = null,
+  ) {
+    super(`Задача ${taskKey} повреждена: ${reason}\nФайл: ${file}${line !== null ? `, строка ${line}` : ""}`);
+  }
 }
 
 export class StateVersionConflictError extends SdlcError {

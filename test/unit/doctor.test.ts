@@ -1,33 +1,15 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { AppContext } from "../../src/app.js";
 import { compareVersions, runDoctor } from "../../src/commands/doctor.js";
-import { PolicyLoader } from "../../src/policy/policy-loader.js";
-import { createStyle } from "../../src/ui/plain/style.js";
-import { systemClock } from "../../src/util/clock.js";
-import { execFileNoThrow } from "../../src/util/exec.js";
+import { testContext } from "../helpers/context.js";
 import { examplePolicy } from "../helpers/paths.js";
 import { sandbox } from "../helpers/tmp.js";
 
 async function doctorWith(nodeVersion: string, color = false) {
   const sb = await sandbox(readFileSync(examplePolicy));
-  let out = "";
-  const ctx: AppContext = {
-    cwd: sb.project,
-    homeDir: sb.home,
-    env: {},
-    stdout: { write: (s: string) => (out += s) },
-    stderr: { write: () => true },
-    interactive: false,
-    verbose: false,
-    style: createStyle(color),
-    clock: systemClock,
-    exec: execFileNoThrow,
-    nodeVersion,
-    policyLoader: new PolicyLoader(sb.policyPath),
-  };
+  const ctx = testContext(sb, { nodeVersion, color });
   const code = await runDoctor(ctx, { fix: false });
-  return { code, out };
+  return { code, out: ctx.out() };
 }
 
 describe("doctor", () => {
