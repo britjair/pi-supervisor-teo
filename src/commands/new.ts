@@ -1,5 +1,5 @@
 // sdlc new [KEY] [--title T] [--description-file F | --description -] (05-cli-ui.md §2, §3.2).
-// Создание задачи — один commit в новом каталоге. Запуск workflow появится в M3.
+// Создание задачи — один commit в новом каталоге; затем движок (если не --no-run).
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -13,8 +13,9 @@ import type { ProjectStore } from "../state/project-store.js";
 import { findCaseInsensitive, taskKeyProblem } from "../state/task-key.js";
 import type { HumanIO } from "../ui/human-io.js";
 import { msg } from "../ui/messages.js";
+import { executeTask } from "./run-task.js";
 
-export type NewOptions = { key?: string; title?: string; descriptionFile?: string; description?: string };
+export type NewOptions = { key?: string; title?: string; descriptionFile?: string; description?: string; noRun?: boolean };
 export type NewTaskInput = { key: string; title: string; description: string };
 
 export const TITLE_MAX = 200;
@@ -213,6 +214,6 @@ export async function runNew(ctx: AppContext, opts: NewOptions): Promise<number>
   const input = ctx.human ? await newTaskForm(ctx, ctx.human, store, opts) : await inputFromFlags(ctx, store, opts);
   if (!input) return ExitCode.ok;
   const state = await createTask(store, input);
-  ctx.stdout.write(createdText(store, state) + "\n");
-  return ExitCode.ok;
+  ctx.stdout.write((opts.noRun ? createdText(store, state) : createdText(store, state).split("\n")[0]) + "\n");
+  return opts.noRun ? ExitCode.ok : executeTask(ctx, store, state.key);
 }

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { compareVersions, runDoctor } from "../../src/commands/doctor.js";
+import type { AgentRuntime } from "../../src/agents/runtime.js";
 import { testContext } from "../helpers/context.js";
 import { examplePolicy } from "../helpers/paths.js";
 import { sandbox } from "../helpers/tmp.js";
@@ -8,7 +9,11 @@ import { sandbox } from "../helpers/tmp.js";
 async function doctorWith(nodeVersion: string, color = false) {
   const sb = await sandbox(readFileSync(examplePolicy));
   const ctx = testContext(sb, { nodeVersion, color });
-  const code = await runDoctor(ctx, { fix: false });
+  const piRuntime = {
+    probe: async () => ({ sdkVersion: "1.4.0", ok: true, problems: [] }),
+    resolveModel: async () => ({ id: "test/model", thinking: null, providedBy: null, handle: null }),
+  } as unknown as AgentRuntime;
+  const code = await runDoctor(ctx, { fix: false, piRuntime });
   return { code, out: ctx.out() };
 }
 

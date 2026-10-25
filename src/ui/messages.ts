@@ -452,7 +452,12 @@ export const msg = {
     policyFailed: (p: string) => `Policy ${p}`,
     models: (refs: string) => `Модели в Policy: ${refs}`,
     modelsUsage: (ref: string, users: string[]) => `${ref} (${users.join(", ")})`,
-    piSkipped: "Pi SDK, модели, авторизация и пробная сессия — проверки появятся вместе с интеграцией Pi (M4)",
+    piSdk: (v: string) => `Pi SDK ${v} загружается`,
+    piSdkError: "Не удалось загрузить Pi SDK или создать пробную сессию",
+    piCliMissing: "Команда pi --version недоступна: сравнение версий SDK и CLI пропущено",
+    piVersionMismatch: (sdk: string, cli: string) => `Версия Pi CLI (${cli}) отличается от SDK (${sdk})`,
+    piModelOk: (ref: string, model: string) => `Модель ${ref} → ${model}, авторизация доступна`,
+    piModelError: (ref: string) => `Модель ${ref} недоступна или не авторизована`,
     projectRoot: (root: string, source: "git" | "cwd") =>
       `Проект ${root} (${source === "git" ? "корень git-репозитория" : "текущий каталог, git-репозиторий не найден"})`,
     projectAccess: "Права на чтение и запись каталога проекта",

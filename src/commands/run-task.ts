@@ -1,0 +1,50 @@
+// Plain CLI → workflow engine на реальном Pi. Lock удерживается до исхода или остановки.
+import path from "node:path";
+import { PiAgentRuntime } from "../agents/pi/pi-agent-runtime.js";
+import { startCommand, type AppContext } from "../app.js";
+import { ExitCode, UsageError } from "../errors/errors.js";
+import type { ProjectStore } from "../state/project-store.js";
+import { PlainReporter } from "../ui/plain/plain-reporter.js";
+import { setInterruptHandler } from "../util/interrupts.js";
+import { Engine } from "../workflow/engine.js";
+import { RECOVER_ONLY_CODES, unblockTask } from "../workflow/manual.js";
+import { exitCodeFor } from "../workflow/outcome.js";
+
+export async function executeTask(ctx: AppContext, store: ProjectStore, key: string, options: { noWait?: boolean; checkNow?: boolean } = {}): Promise<number> {
+  const pi = new PiAgentRuntime({ agentDir: ctx.env["PI_CODING_AGENT_DIR"] ?? path.join(ctx.homeDir, ".pi", "agent"), cwd: store.layout.projectRoot });
+  try {
+    return await store.withLock({ command: "resume", taskKey: key }, async (lock) => {
+      const state = await store.tasks.load(key);
+      if (state.status === "blocked" && RECOVER_ONLY_CODES.includes(state.statusReason?.code ?? "")) {
+        throw new UsageError(`Задачу ${key} (${state.statusReason?.code}) можно восстановить только командой: sdlc recover ${key}`);
+      }
+      if (state.status === "blocked") {
+        if (!ctx.human) {
+          ctx.stdout.write(`Задача ${key} заблокирована: ${state.statusReason?.message ?? "причина неизвестна"}. Для разблокировки запустите sdlc resume ${key} в терминале.\n`);
+          return ExitCode.waitingHuman;
+        }
+        ctx.human.print(`Задача ${key} заблокирована: ${state.statusReason?.message ?? "причина неизвестна"}`);
+        const note = await ctx.human.multiline("Что изменилось?", { validate: (text) => text.trim() ? null : "Нужен комментарий." });
+        await unblockTask(store, key, note);
+      }
+      const engine = new Engine({
+        key, store, runtime: pi, policy: store.policy, loadPolicy: () => ctx.policyLoader.loadAndValidate(),
+        human: ctx.human, reporter: new PlainReporter(ctx.stdout, ctx.clock), clock: ctx.clock,
+        ids: ctx.ids, exec: ctx.exec, style: ctx.style, faults: ctx.faults, lockSignal: lock.signal,
+        options: { noWait: options.noWait ?? false, checkNow: options.checkNow ?? false },
+        confirmPolicy: ctx.human ? async (change) => ctx.human!.confirm(`Policy изменилась (${change.fromHash} → ${change.toHash}). Применить новую версию?`, false) : null,
+      });
+      const clear = setInterruptHandler((signal) => engine.interrupt(signal));
+      try { return exitCodeFor(await engine.run()); }
+      finally { clear(); }
+    });
+  } finally {
+    await pi.dispose();
+  }
+}
+
+export async function runResume(ctx: AppContext, key: string, opts: { noWait?: boolean; checkNow?: boolean }): Promise<number> {
+  const { store } = await startCommand(ctx);
+  await store.tasks.readState(key); // не создавать .sdlc и lock для несуществующей задачи
+  return executeTask(ctx, store, key, opts);
+}

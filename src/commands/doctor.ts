@@ -2,6 +2,8 @@
 // Pi SDK, модели и пробная сессия — M4; хранилище .sdlc — M2. Без --fix ничего не меняет.
 
 import { constants } from "node:fs";
+import { PiAgentRuntime } from "../agents/pi/pi-agent-runtime.js";
+import type { AgentRuntime } from "../agents/runtime.js";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { openProject, type AppContext } from "../app.js";
@@ -52,7 +54,7 @@ function modelUsage(policy: LoadedPolicy): string {
   return [...users].map(([ref, who]) => msg.doctor.modelsUsage(ref, who)).join("; ");
 }
 
-export async function collectDoctorChecks(ctx: AppContext): Promise<{ checks: DoctorCheck[]; policyValid: boolean }> {
+export async function collectDoctorChecks(ctx: AppContext, runtime?: AgentRuntime): Promise<{ checks: DoctorCheck[]; policyValid: boolean }> {
   const checks: DoctorCheck[] = [];
   const s = ctx.style;
 
@@ -100,7 +102,33 @@ export async function collectDoctorChecks(ctx: AppContext): Promise<{ checks: Do
     });
   }
 
-  checks.push({ id: "pi", level: "skipped", title: msg.doctor.piSkipped, details: [] });
+  if (policy) {
+    const pi = runtime ?? new PiAgentRuntime({ agentDir: ctx.env["PI_CODING_AGENT_DIR"] ?? path.join(ctx.homeDir, ".pi", "agent"), cwd: ctx.cwd });
+    try {
+      const probe = await pi.probe();
+      checks.push({ id: "pi", level: probe.ok ? "ok" : "error", title: probe.ok ? msg.doctor.piSdk(probe.sdkVersion ?? "?") : msg.doctor.piSdkError, details: probe.problems });
+      if (probe.sdkVersion) {
+        const installed = await ctx.exec("pi", ["--version"], { cwd: ctx.cwd, timeoutMs: 5_000 }).catch(() => null);
+        const cli = installed?.stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? null;
+        if (cli && cli !== probe.sdkVersion) checks.push({ id: "pi.version", level: "warning", title: msg.doctor.piVersionMismatch(probe.sdkVersion, cli), details: [] });
+        else if (!cli) checks.push({ id: "pi.version", level: "info", title: msg.doctor.piCliMissing, details: [] });
+      }
+      const refs = [...new Set([...agentList(policy.spec).map((a) => [a.model, a.thinking, a.piResources.extensions] as const), [policy.spec.supervisor.model, policy.spec.supervisor.thinking, policy.spec.supervisor.piResources.extensions] as const].map((r) => JSON.stringify(r)))];
+      for (const encoded of refs) {
+        const [ref, thinking, extensions] = JSON.parse(encoded) as [string, typeof policy.spec.supervisor.thinking, typeof policy.spec.supervisor.piResources.extensions];
+        try {
+          const found = await pi.resolveModel({ ref, thinking, extensions: extensions === "inherit" });
+          checks.push({ id: "pi.model", level: "ok", title: msg.doctor.piModelOk(ref, found.id), details: [] });
+        } catch (err) {
+          checks.push({ id: "pi.model", level: "error", title: msg.doctor.piModelError(ref), details: [err instanceof Error ? err.message : String(err)] });
+        }
+      }
+    } catch (err) {
+      checks.push({ id: "pi", level: "error", title: msg.doctor.piSdkError, details: [err instanceof Error ? err.message : String(err)] });
+    } finally {
+      if (!runtime) await pi.dispose();
+    }
+  }
 
   // Project root
   const project = await detectProjectRoot(ctx.cwd, ctx.exec);
@@ -263,9 +291,9 @@ export function renderDoctor(ctx: AppContext, checks: readonly DoctorCheck[]): s
   return lines.join("\n") + "\n";
 }
 
-export async function runDoctor(ctx: AppContext, opts: { fix: boolean }): Promise<number> {
+export async function runDoctor(ctx: AppContext, opts: { fix: boolean; piRuntime?: AgentRuntime }): Promise<number> {
   if (opts.fix) throw new UsageError(msg.doctor.fixNotImplemented);
-  const { checks, policyValid } = await collectDoctorChecks(ctx);
+  const { checks, policyValid } = await collectDoctorChecks(ctx, opts.piRuntime);
   ctx.stdout.write(renderDoctor(ctx, checks));
   if (!policyValid) return ExitCode.config;
   return checks.some((c) => c.level === "error") ? ExitCode.runtime : ExitCode.ok;

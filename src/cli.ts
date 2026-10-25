@@ -9,12 +9,14 @@ import { runHistory } from "./commands/history.js";
 import { runInteractive } from "./commands/interactive.js";
 import { runNew } from "./commands/new.js";
 import { runPendingCommand } from "./commands/pending.js";
+import { runResume } from "./commands/run-task.js";
 import { runStatus } from "./commands/status.js";
 import { ExitCode, SdlcError } from "./errors/errors.js";
 import { msg } from "./ui/messages.js";
 import { renderError } from "./ui/plain/errors.js";
 import { colorEnabled } from "./ui/plain/style.js";
 import { runCleanup } from "./util/cleanup.js";
+import { dispatchInterrupt } from "./util/interrupts.js";
 import { closestMatch } from "./util/strings.js";
 
 type GlobalOptions = { color?: boolean; plain?: boolean; verbose?: boolean };
@@ -104,15 +106,17 @@ export async function main(argv: readonly string[]): Promise<number> {
     .option("--title <title>", msg.cli.optTitle)
     .addOption(new Option("--description-file <file>", msg.cli.optDescriptionFile).conflicts("description"))
     .option("--description <text>", msg.cli.optDescription)
+    .option("--no-run", "создать задачу без запуска workflow")
     .action(
       run((ctx, cmd) => {
-        const o = cmd.opts<{ title?: string; descriptionFile?: string; description?: string }>();
+        const o = cmd.opts<{ title?: string; descriptionFile?: string; description?: string; run?: boolean }>();
         const key = cmd.args[0];
         return runNew(ctx, {
           ...(key !== undefined ? { key } : {}),
           ...(o.title !== undefined ? { title: o.title } : {}),
           ...(o.descriptionFile !== undefined ? { descriptionFile: o.descriptionFile } : {}),
           ...(o.description !== undefined ? { description: o.description } : {}),
+          ...(o.run === false ? { noRun: true } : {}),
         });
       }),
     );
@@ -123,7 +127,10 @@ export async function main(argv: readonly string[]): Promise<number> {
     .argument("<KEY>", msg.cli.argKey)
     .option("--now", msg.cli.optNow)
     .option("--no-wait", msg.cli.optNoWait)
-    .action(pending("resume"));
+    .action(run((ctx, cmd) => {
+      const o = cmd.opts<{ now?: boolean; wait?: boolean }>();
+      return runResume(ctx, cmd.args[0] ?? "", { checkNow: o.now === true, noWait: o.wait === false });
+    }));
 
   program
     .command("status")
@@ -199,6 +206,7 @@ for (const [signal, code] of [
   process.on(signal, () => {
     if (stopping) process.exit(code);
     stopping = true;
+    if (dispatchInterrupt(signal === "SIGINT" ? "SIGINT" : "SIGTERM")) return;
     void runCleanup().finally(() => process.exit(code));
   });
 }

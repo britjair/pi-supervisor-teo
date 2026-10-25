@@ -101,15 +101,16 @@ describe("сообщение об ошибке Policy", () => {
 });
 
 describe("sdlc doctor", () => {
-  it("валидная Policy пользователя: всё ✓, exit 0, ничего не создаёт", async () => {
+  it("валидная Policy без авторизации Pi: показывает ошибки моделей, ничего не создаёт", async () => {
     const sb = await sandbox(readFileSync(examplePolicy));
     const r = await runCli(sb, ["doctor"]);
-    expect(r.code, r.stderr).toBe(0);
+    expect(r.code, r.stderr).toBe(1);
     expect(r.stderr).toBe("");
-    expect(r.stdout).toMatch(/^✓ Node\.js \d+\.\d+\.\d+ \(нужно ≥ 22\.19\.0\)$/m);
+    expect(r.stdout).toContain("✓ Pi SDK 1.4.0 загружается");
+    expect(r.stdout).toMatch(/^✓ Node.js \d+\.\d+\.\d+ \(нужно ≥ 22\.19\.0\)$/m);
     expect(r.stdout).toMatch(/^✓ Policy ~\/\.pi\/SDLC\.md · sha256:[0-9a-f]{4}…[0-9a-f]{2} · 8 этапов, 5 агентов$/m);
     expect(r.stdout).toContain(`✓ Проект ${sb.project} (корень git-репозитория)`);
-    expect(r.stdout).toContain("Итог: проблем не найдено.");
+    expect(r.stdout).toContain("✗ Модель default недоступна или не авторизована");
     expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
   });
 
@@ -124,17 +125,17 @@ describe("sdlc doctor", () => {
     expect(r.stdout).toContain("Итог: 1 ошибка, 0 предупреждений.");
   });
 
-  it("предупреждения Policy не дают ошибки", async () => {
+  it("предупреждения Policy не превращаются в ошибки Policy; Pi проверяется отдельно", async () => {
     const text = readFileSync(path.join(validDir, "discover-execute-done.md"), "utf8").replace(
       "agents:\n",
       "agents:\n  spare:\n    instructions: запасной\n",
     );
     const sb = await sandbox(text);
     const r = await runCli(sb, ["doctor"]);
-    expect(r.code).toBe(0);
+    expect(r.code).toBe(1);
     expect(r.stdout).toContain("! 1 предупреждение");
     expect(r.stdout).toMatch(/! agents\.spare \(строка \d+\)/);
-    expect(r.stdout).toContain("Итог: 0 ошибок, 1 предупреждение.");
+    expect(r.stdout).toContain("✗ Модель default недоступна или не авторизована");
   });
 
   it("проект вне git — текущий каталог", async () => {
@@ -190,11 +191,11 @@ describe("интерфейс CLI на русском", () => {
     expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it("валидная Policy: команды-заглушки честно сообщают, что не реализованы", async () => {
+  it("валидная Policy: resume отсутствующей задачи → exit 4 без создания .sdlc", async () => {
     const sb = await sandbox(readFileSync(examplePolicy));
     const r = await runCli(sb, ["resume", "T-1"]);
-    expect(r.code).toBe(1);
-    expect(r.stderr).toBe("Команда «resume» ещё не реализована.\n");
+    expect(r.code).toBe(4);
+    expect(r.stderr).toContain("Задача T-1 не найдена");
     expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
   });
 });

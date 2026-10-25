@@ -20,7 +20,7 @@ import { runCli, sandbox, type Sandbox } from "../helpers/tmp.js";
 
 const POLICY = readFileSync(path.join(validDir, "discover-execute-done.md"));
 
-const newArgs = (key: string, title = `Задача ${key}`) => ["new", key, "--title", title, "--description", `Описание ${key}`];
+const newArgs = (key: string, title = `Задача ${key}`) => ["new", key, "--title", title, "--description", `Описание ${key}`, "--no-run"];
 
 async function withTasks(...keys: string[]): Promise<Sandbox> {
   const sb = await sandbox(POLICY);
@@ -139,10 +139,10 @@ describe("создание задач и меню", () => {
 
   it("new из stdin и из файла; ошибки ввода без терминала", async () => {
     const sb = await sandbox(POLICY);
-    expect((await runCli(sb, ["new", "A-1", "--title", "a", "--description", "-"], { input: "из stdin\n" })).code).toBe(0);
+    expect((await runCli(sb, ["new", "A-1", "--title", "a", "--description", "-", "--no-run"], { input: "из stdin\n" })).code).toBe(0);
     expect(await readFile(path.join(taskDir(sb, "A-1"), "task.md"), "utf8")).toContain("## Описание\n\nиз stdin\n");
     await writeFile(path.join(sb.project, "d.txt"), "из файла");
-    expect((await runCli(sb, ["new", "A-2", "--title", "b", "--description-file", "d.txt"])).code).toBe(0);
+    expect((await runCli(sb, ["new", "A-2", "--title", "b", "--description-file", "d.txt", "--no-run"])).code).toBe(0);
 
     const bad = async (args: string[]) => {
       const r = await runCli(sb, args);
@@ -181,7 +181,8 @@ describe("второй процесс", () => {
       expect((await runCli(sb, ["status"])).code).toBe(0);
       expect((await runCli(sb, ["history", "T-1"])).code).toBe(0);
       const doctor = await runCli(sb, ["doctor"]);
-      expect(doctor.code).toBe(0);
+      expect(doctor.code).toBe(1); // нет авторизации Pi в изолированном HOME
+      expect(doctor.stdout).toContain("✗ Модель default недоступна или не авторизована");
       expect(doctor.stdout).toContain(`· Проект занят: PID ${process.pid}`);
     } finally {
       await lock.release();
@@ -199,8 +200,9 @@ describe("второй процесс", () => {
     expect(created.length).toBeGreaterThan(0);
     expect((await readdir(path.join(sb.project, ".sdlc", "tasks"))).sort()).toEqual(created.sort());
     const doctor = await runCli(sb, ["doctor"]);
-    expect(doctor.code, doctor.stdout).toBe(0);
-    expect(doctor.stdout).toContain("Итог: проблем не найдено.");
+    expect(doctor.code, doctor.stdout).toBe(1); // хранение исправно, Pi без авторизации
+    expect(doctor.stdout).toContain("✓ Журналы событий целы, outbox доставлен");
+    expect(doctor.stdout).toContain("✗ Модель default недоступна или не авторизована");
   });
 
   it("протухший lock умершего процесса забирается автоматически", async () => {
