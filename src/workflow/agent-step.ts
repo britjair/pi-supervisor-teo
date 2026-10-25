@@ -253,7 +253,7 @@ export async function startAgent(core: EngineCore, state: TaskState): Promise<Ex
 
   if (input.kind === "restart" && prev) core.pool.close(path.join(core.task().dir, prev.sessionFile));
   const handle = await core.pool.open(agentSessionSpec(core, agent, file, model));
-  core.reporter.context({ key: core.key, stage: state.stage, agent: `${agentId}#${run.attempt}` });
+  core.reporter.context({ key: core.key, stage: state.stage, stageTitle: stage.title, agent: `${agentId}#${run.attempt}` });
   core.reporter.emit({ type: "agent.started", stage: state.stage, stageTitle: stage.title, agentId, attempt: run.attempt, inputKind: input.kind });
   core.pool.start(run.runId, handle, prompt, {
     parent: core.signal,

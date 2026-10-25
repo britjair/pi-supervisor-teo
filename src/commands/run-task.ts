@@ -27,9 +27,20 @@ export async function executeTask(ctx: AppContext, store: ProjectStore, key: str
         const note = await ctx.human.multiline("Что изменилось?", { validate: (text) => text.trim() ? null : "Нужен комментарий." });
         await unblockTask(store, key, note);
       }
+      const waitControl = ctx.human?.waitControl?.();
+      const reporter = ctx.human?.reporter?.(key) ?? new PlainReporter(ctx.stdout, ctx.clock);
+      reporter.context({
+        key,
+        stage: state.stage,
+        stageTitle: store.stageTitle(state.stage) ?? state.stage,
+        agent: state.currentRun ? `${state.currentRun.agentId}#${state.currentRun.attempt}` : null,
+      });
       const engine = new Engine({
         key, store, runtime: pi, policy: store.policy, loadPolicy: () => ctx.policyLoader.loadAndValidate(),
-        human: ctx.human, reporter: new PlainReporter(ctx.stdout, ctx.clock), clock: ctx.clock,
+        human: ctx.human,
+        reporter,
+        ...(waitControl ? { waitControl } : {}),
+        clock: ctx.clock,
         ids: ctx.ids, exec: ctx.exec, style: ctx.style, faults: ctx.faults, lockSignal: lock.signal,
         options: { noWait: options.noWait ?? false, checkNow: options.checkNow ?? false },
         confirmPolicy: ctx.human ? async (change) => ctx.human!.confirm(`Policy изменилась (${change.fromHash} → ${change.toHash}). Применить новую версию?`, false) : null,

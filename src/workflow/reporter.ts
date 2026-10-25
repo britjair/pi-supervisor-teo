@@ -1,8 +1,12 @@
 // События движка для интерфейса (05-cli-ui.md §4–5). Строятся из state и RuntimeEvent, а не из текста модели.
 
+import type { Usage } from "../domain/runs.js";
+
 export type EngineEvent =
   | { type: "agent.started"; stage: string; stageTitle: string; agentId: string; attempt: number; inputKind: string }
   | { type: "text"; actor: "agent" | "supervisor"; text: string }
+  | { type: "thinking"; actor: "agent" | "supervisor"; text: string }
+  | { type: "usage"; actor: "agent" | "supervisor"; usage: Usage }
   | { type: "tool.started"; actor: "agent" | "supervisor"; toolName: string; argsPreview: string }
   | { type: "tool.finished"; actor: "agent" | "supervisor"; toolName: string; ok: boolean }
   | { type: "agent.settled"; agentId: string; attempt: number; reason: string }
@@ -18,7 +22,7 @@ export type EngineEvent =
 
 export interface EngineReporter {
   /** Текущий контекст для префиксов строк */
-  context(ctx: { key: string; stage: string; agent: string | null }): void;
+  context(ctx: { key: string; stage: string; stageTitle?: string; agent: string | null }): void;
   emit(e: EngineEvent): void;
 }
 

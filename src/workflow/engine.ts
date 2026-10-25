@@ -110,6 +110,8 @@ export class Engine implements EngineCore {
     this.pool = new SessionPool(deps.runtime, (_file, role, e) => {
       const actor = role;
       if (e.type === "text") this.reporter.emit({ type: "text", actor, text: e.delta });
+      else if (e.type === "thinking") this.reporter.emit({ type: "thinking", actor, text: e.delta });
+      else if (e.type === "usage") this.reporter.emit({ type: "usage", actor, usage: e.usage });
       else if (e.type === "tool.started") this.reporter.emit({ type: "tool.started", actor, toolName: e.toolName, argsPreview: e.argsPreview });
       else if (e.type === "tool.finished") this.reporter.emit({ type: "tool.finished", actor, toolName: e.toolName, ok: e.ok });
     });

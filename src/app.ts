@@ -1,13 +1,13 @@
 // Composition root: собирает сервисы и общий контекст команд. Решений не принимает.
 
 import os from "node:os";
-import type { Readable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import type { LoadedPolicy } from "./domain/policy.js";
 import { PolicyLoader, defaultPolicyPath } from "./policy/policy-loader.js";
 import { detectProjectRoot, type ProjectRoot } from "./project/project-root.js";
 import { ProjectStore } from "./state/project-store.js";
 import type { HumanIO } from "./ui/human-io.js";
-import { PlainHumanIO } from "./ui/plain/plain-human-io.js";
+import { createInteractiveHumanIO } from "./ui/interactive-human-io.js";
 import { createStyle, type Style } from "./ui/plain/style.js";
 import { systemClock, type Clock } from "./util/clock.js";
 import { execFileNoThrow, type Exec } from "./util/exec.js";
@@ -25,7 +25,7 @@ export type AppContext = {
   stdin: Readable;
   stdout: Output;
   stderr: Output;
-  /** Терминал на входе и выходе, без --plain: можно задавать вопросы */
+  /** Терминал на входе и выходе: можно задавать вопросы; --plain выбирает линейный HumanIO. */
   interactive: boolean;
   /** null без терминала: команды, которым нужен ответ человека, требуют флагов */
   human: HumanIO | null;
@@ -45,8 +45,8 @@ export type AppOptions = {
   cwd?: string;
   env?: Record<string, string | undefined>;
   stdin: Readable & { isTTY?: boolean };
-  stdout: Output;
-  stderr: Output;
+  stdout: Writable & { isTTY?: boolean };
+  stderr: Writable & { isTTY?: boolean };
   color: boolean;
   plain: boolean;
   verbose: boolean;
@@ -57,7 +57,7 @@ export function createAppContext(o: AppOptions): AppContext {
   const homeDir = os.homedir();
   const env = o.env ?? process.env;
   const style = createStyle(o.color);
-  const interactive = !o.plain && o.stdin.isTTY === true && o.stdout.isTTY === true;
+  const interactive = o.stdin.isTTY === true && o.stdout.isTTY === true;
   const clock = systemClock;
   return {
     cwd: o.cwd ?? process.cwd(),
@@ -67,7 +67,7 @@ export function createAppContext(o: AppOptions): AppContext {
     stdout: o.stdout,
     stderr: o.stderr,
     interactive,
-    human: interactive ? new PlainHumanIO(o.stdin, process.stdout, style, true) : null,
+    human: interactive ? createInteractiveHumanIO(o.stdin, o.stdout, o.stderr, clock, style, o.plain) : null,
     verbose: o.verbose,
     style,
     clock,

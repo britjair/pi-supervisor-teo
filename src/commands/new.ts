@@ -214,6 +214,8 @@ export async function runNew(ctx: AppContext, opts: NewOptions): Promise<number>
   const input = ctx.human ? await newTaskForm(ctx, ctx.human, store, opts) : await inputFromFlags(ctx, store, opts);
   if (!input) return ExitCode.ok;
   const state = await createTask(store, input);
-  ctx.stdout.write((opts.noRun ? createdText(store, state) : createdText(store, state).split("\n")[0]) + "\n");
+  const created = (opts.noRun ? createdText(store, state) : createdText(store, state).split("\n")[0]) + "\n";
+  if (ctx.human) ctx.human.print(created);
+  else ctx.stdout.write(created);
   return opts.noRun ? ExitCode.ok : executeTask(ctx, store, state.key);
 }

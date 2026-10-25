@@ -1,4 +1,4 @@
-// sdlc без аргументов: меню (05-cli-ui.md §3). Пока линейное; Ink-версия — M5.
+// sdlc без аргументов: меню (05-cli-ui.md §3). HumanIO выбирает Ink или plain.
 // Меню только читает; lock берётся, когда выбрано mutating-действие.
 
 import { startCommand, type AppContext } from "../app.js";
@@ -14,10 +14,13 @@ import { tildify } from "../util/strings.js";
 import { cancelTask } from "./cancel.js";
 import { eventsText } from "./history.js";
 import { createTask, createdText, newTaskForm } from "./new.js";
+import { executeTask } from "./run-task.js";
 import { statusText, summaryText } from "./status.js";
 import { byUpdatedDesc, listViews, taskView, type TaskView } from "./task-view.js";
 
 const MENU_EVENTS = 20;
+
+type TaskExecutor = (ctx: AppContext, store: ProjectStore, key: string) => Promise<number>;
 
 type MenuChoice = { kind: "create" } | { kind: "task"; key: string } | { kind: "corrupted"; key: string } | { kind: "finished" } | { kind: "exit" };
 
@@ -41,11 +44,12 @@ async function guarded(ctx: AppContext, human: HumanIO, action: () => Promise<vo
   }
 }
 
-async function createFlow(ctx: AppContext, human: HumanIO, store: ProjectStore): Promise<void> {
+async function createFlow(ctx: AppContext, human: HumanIO, store: ProjectStore, execute: TaskExecutor): Promise<number | null> {
   const input = await newTaskForm(ctx, human, store, {});
-  if (!input) return;
+  if (!input) return null;
   const state = await createTask(store, input);
-  human.print(createdText(store, state) + "\n");
+  human.print(createdText(store, state).split("\n")[0] + "\n");
+  return execute(ctx, store, state.key);
 }
 
 function resumeText(ctx: AppContext, v: TaskView): string {
@@ -58,12 +62,10 @@ function resumeText(ctx: AppContext, v: TaskView): string {
     msg.resume.lastEvent(last),
     msg.resume.next(nextActionText(v.next, { key: v.key, now })),
     "",
-    ctx.style.yellow(msg.resume.notImplemented),
-    "",
   ].join("\n");
 }
 
-async function taskMenu(ctx: AppContext, human: HumanIO, store: ProjectStore, key: string): Promise<void> {
+async function taskMenu(ctx: AppContext, human: HumanIO, store: ProjectStore, key: string, execute: TaskExecutor): Promise<number | null> {
   for (;;) {
     const now = ctx.clock.now();
     const view = await taskView(store, await store.tasks.read(key), await store.locks.inspect(), now);
@@ -80,10 +82,10 @@ async function taskMenu(ctx: AppContext, human: HumanIO, store: ProjectStore, ke
     const action = await human.select(title, choices);
     switch (action) {
       case "back":
-        return;
+        return null;
       case "resume":
         human.print("\n" + resumeText(ctx, view));
-        break;
+        return execute(ctx, store, key);
       case "status":
         human.print("\n" + (await statusText(ctx, store, key)));
         break;
@@ -96,23 +98,24 @@ async function taskMenu(ctx: AppContext, human: HumanIO, store: ProjectStore, ke
           done = await cancelTask(store, key, { human });
           human.print((done ? msg.cancel.done(key) : msg.cancel.declined) + "\n");
         });
-        if (done) return;
+        if (done) return null;
         break;
       }
     }
   }
 }
 
-async function finishedMenu(ctx: AppContext, human: HumanIO, store: ProjectStore, views: TaskView[]): Promise<void> {
+async function finishedMenu(ctx: AppContext, human: HumanIO, store: ProjectStore, views: TaskView[], execute: TaskExecutor): Promise<number | null> {
   const rows = taskRows(views.map((view) => ({ ok: true as const, view })), { now: ctx.clock.now(), style: ctx.style });
   const key = await human.select<string | null>(msg.menu.finishedTitle, [
     ...views.map((v, i) => ({ label: rows[i] ?? v.key, value: v.key })),
     { label: msg.menu.back, value: null, key: "q" },
   ]);
-  if (key) await taskMenu(ctx, human, store, key);
+  return key ? taskMenu(ctx, human, store, key, execute) : null;
 }
 
-export async function runInteractive(ctx: AppContext): Promise<number> {
+export async function runInteractive(ctx: AppContext, deps: { execute?: TaskExecutor } = {}): Promise<number> {
+  const execute = deps.execute ?? executeTask;
   const { store } = await startCommand(ctx);
   const human = ctx.human;
   if (!human) {
@@ -134,7 +137,9 @@ export async function runInteractive(ctx: AppContext): Promise<number> {
     human.print(header(ctx, store));
     // Незавершённых задач нет — сразу форма создания (05-cli-ui.md §3)
     if (first && active.length === 0 && corrupted.length === 0) {
-      await guarded(ctx, human, () => createFlow(ctx, human, store));
+      let result: number | null = null;
+      await guarded(ctx, human, async () => { result = await createFlow(ctx, human, store, execute); });
+      if (result !== null) return result;
       continue;
     }
 
@@ -153,18 +158,27 @@ export async function runInteractive(ctx: AppContext): Promise<number> {
     switch (choice.kind) {
       case "exit":
         return ExitCode.ok;
-      case "create":
-        await guarded(ctx, human, () => createFlow(ctx, human, store));
+      case "create": {
+        let result: number | null = null;
+        await guarded(ctx, human, async () => { result = await createFlow(ctx, human, store, execute); });
+        if (result !== null) return result;
         break;
-      case "task":
-        await guarded(ctx, human, () => taskMenu(ctx, human, store, choice.key));
+      }
+      case "task": {
+        let result: number | null = null;
+        await guarded(ctx, human, async () => { result = await taskMenu(ctx, human, store, choice.key, execute); });
+        if (result !== null) return result;
         break;
+      }
       case "corrupted":
         human.print(msg.menu.corruptedHint(choice.key) + "\n");
         break;
-      case "finished":
-        await guarded(ctx, human, () => finishedMenu(ctx, human, store, finished));
+      case "finished": {
+        let result: number | null = null;
+        await guarded(ctx, human, async () => { result = await finishedMenu(ctx, human, store, finished, execute); });
+        if (result !== null) return result;
         break;
+      }
     }
   }
 }

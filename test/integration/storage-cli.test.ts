@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runInteractive } from "../../src/commands/interactive.js";
 import type { TaskState } from "../../src/domain/task-state.js";
 import { LockManager } from "../../src/state/lock-manager.js";
@@ -84,10 +84,11 @@ describe("создание задач и меню", () => {
       { input: "Экспорт заказов в CSV" },
       { multiline: "Выгрузка заказов\nза период" },
       { select: "Создать" },
-      { select: "Выход" },
     ]);
     const ctx = testContext(sb, { human });
-    expect(await runInteractive(ctx)).toBe(0);
+    const execute = vi.fn(async () => 0);
+    expect(await runInteractive(ctx, { execute })).toBe(0);
+    expect(execute).toHaveBeenCalledWith(ctx, expect.anything(), "CRM-12");
     expect(human.remaining).toBe(0);
     const [firstMenu] = human.printed.split("Новая задача");
     expect(firstMenu).toContain("PAY-142");

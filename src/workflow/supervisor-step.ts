@@ -159,7 +159,7 @@ export async function startSupervisor(core: EngineCore, state: TaskState): Promi
     recentEvents: events.slice(-RECENT_EVENTS).map(eventLine),
   });
   const handle = await core.pool.open(spec);
-  core.reporter.context({ key: core.key, stage: next.stage, agent: null });
+  core.reporter.context({ key: core.key, stage: next.stage, stageTitle: stage.title, agent: null });
   core.reporter.emit({ type: "supervisor.started", cycle, trigger: next.supervisor.trigger?.kind ?? null });
   core.pool.start(supervisorRunKey(cycle), handle, prompt, { parent: core.signal, timeoutMs: limits.supervisorTimeoutMinutes * 60_000 });
 }

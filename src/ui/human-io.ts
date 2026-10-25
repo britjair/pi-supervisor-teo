@@ -1,5 +1,8 @@
 // Диалог с человеком, независимый от способа отображения (06-implementation.md §2.1).
-// Реализации: plain (readline, этот этап), Ink (M5), ScriptedHumanIO в тестах.
+// Реализации: plain (readline), Ink и ScriptedHumanIO в тестах.
+
+import type { EngineReporter } from "../workflow/reporter.js";
+import type { WaitControl } from "../workflow/wait-step.js";
 
 export type Choice<T> = {
   label: string;
@@ -21,6 +24,8 @@ export interface HumanIO {
   /** Вывести текст (с переводом строки в конце). */
   print(text: string): void;
   close(): void;
+  reporter?(taskKey: string): EngineReporter;
+  waitControl?(): WaitControl;
 }
 
 /** Вопрос человеку от агента или supervisor-а (03-engine.md §6.3). */

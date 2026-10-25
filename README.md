@@ -4,13 +4,14 @@ CLI `sdlc` ведёт задачу через SDLC-процесс, описан�
 
 ## Статус
 
-Готовы этапы M1–M4 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)):
+Готовы этапы M1–M5 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)):
 
 - загрузчик и валидатор Policy (`src/policy/`): preflight, front matter, схема, граф, hash, структурный diff, снимки;
 - хранилище `.sdlc/` (`src/state/`): атомарная запись, `state.json` с инвариантами и outbox, журнал событий с ремонтом хвоста, обнаружение подмены state, `index.json`, project lock с takeover и heartbeat;
-- команды `sdlc` (меню, пока линейное), `new` (создаёт и запускает задачу; `--no-run` создаёт без запуска), `resume`, `status`, `history`, `cancel`, `doctor` (включая SDK/модели/авторизацию; без `--fix`);
+- команды `sdlc` (Ink-меню в TTY, линейный режим для pipe/`--plain`), `new` (создаёт и запускает задачу; `--no-run` создаёт без запуска), `resume`, `status`, `history`, `cancel`, `doctor` (включая SDK/модели/авторизацию; без `--fix`);
 - движок M3: фазы, решения supervisor-а, вопросы человеку, ожидание и перепроверка, изменение Policy, recovery и fault-injection;
-- интеграция Pi SDK 1.4.0 (M4): модель, сессии и их инспекция, TypeBox-адаптер инструментов, inline guard, plain-вывод хода CLI. `recover` в CLI пока заглушка; Ink — M5, полный `recover` — M6.
+- интеграция Pi SDK 1.4.0 (M4): модель, сессии и их инспекция, TypeBox-адаптер инструментов, inline guard;
+- TUI M5: один Ink root для меню, форм, потока событий, human prompt и ожидания; `Ctrl+C` с подтверждением во время хода, `t` для thinking, `s` для статуса, `Enter`/`m`/`q` в ожидании; plain-репортёр соответствует формату `docs/05-cli-ui.md §5`. `recover` в CLI пока заглушка; полный `recover` — M6.
 
 ## Разработка
 
@@ -38,7 +39,8 @@ scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi && cp examples/SDLC.md /tmp/h/.pi/SDLC
 - `test/unit/no-process-literals.test.ts` (критерий приёмки 2): ни один строковый литерал в `src/` не совпадает с id этапа или агента из фикстур и не содержит название этапа.
 - Тесты хранилища `test/integration/storage-cli.test.ts` запускают собранный `dist/cli.js` с подменённым `HOME` и `TZ=UTC`. Сбой в именованной точке включается переменной `SDLC_FAULT=after-state-commit:kill` (D27): так тест убивает процесс между записью state и журналом.
 - `test/integration/engine-*.test.ts` прогоняют движок на `FakeAgentRuntime` с временным проектом и инъекцией сбоя в каждой именованной точке каждого её прохождения; отдельные unit-тесты проверяют guard, evidence и остановку активной сессии.
-- Меню и формы тестируются in-process через `ScriptedHumanIO` (`test/helpers/`).
+- Меню и формы тестируются in-process через `ScriptedHumanIO` (`test/helpers/`); Ink-компоненты меню, формы, human prompt, выполнения и ожидания — через `ink-testing-library` в `test/unit/ink-ui.test.tsx`.
+- Полный обычный прогон M5: 402 теста; реальный Pi e2e: 2 теста.
 - `scripts/e2e.sh` монтирует только нужные файлы из `~/.pi/agent` **read-only**, копирует их во временный контейнер и удаляет список установленных пакетов/расширений из копии настроек. Исходный `~/.pi` не изменяется. Для другого источника: `SDLC_E2E_AGENT_DIR=<каталог> scripts/e2e.sh`. E2E делает реальные вызовы модели и может стоить денег.
 
 ## Запуск на хосте (открытый вопрос Q4)
