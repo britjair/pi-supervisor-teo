@@ -22,3 +22,16 @@ export interface HumanIO {
   print(text: string): void;
   close(): void;
 }
+
+/** Вопрос человеку от агента или supervisor-а (03-engine.md §6.3). */
+export type QuestionView = {
+  /** «Вопрос от supervisor · PAY-142 · Согласование плана» */
+  header: string;
+  question: string;
+  context: string | null;
+  options: string[] | null;
+  allowFreeText: boolean;
+  attachments: Array<{ path: string; sha256: string }>;
+};
+
+export type HumanAnswer = { answer: string; selectedOption: string | null };

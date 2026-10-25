@@ -47,7 +47,7 @@ export class ProjectStore {
   readonly snapshots: PolicySnapshotStore;
   private readonly isAlive: (pid: number) => boolean;
 
-  constructor(private readonly deps: ProjectDeps) {
+  constructor(private deps: ProjectDeps) {
     this.layout = projectLayout(deps.projectRoot);
     this.isAlive = deps.isAlive ?? pidAlive;
     this.index = new IndexStore(this.layout.index, deps.clock);
@@ -74,6 +74,11 @@ export class ProjectStore {
   /** Название этапа по текущей Policy; null — этапа в Policy нет. */
   readonly stageTitle = (stageId: string): string | null =>
     this.deps.policy ? (getStage(this.deps.policy.spec, stageId)?.title ?? null) : null;
+
+  /** Policy сменилась (policy gate): названия этапов в index берутся из новой. */
+  setPolicy(policy: LoadedPolicy): void {
+    this.deps.policy = policy;
+  }
 
   get policy(): LoadedPolicy {
     if (!this.deps.policy) throw new Error("Хранилище открыто без Policy");

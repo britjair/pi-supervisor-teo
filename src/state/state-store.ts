@@ -25,8 +25,11 @@ const OUTBOX_TAIL = 64;
 export type CommitContext = {
   /** Время записи (ISO 8601 UTC), одно на всю транзакцию */
   now: string;
-  /** Добавить событие в транзакцию. Возвращает его id: на него можно сослаться в state или другом событии. */
-  emit<K extends EventType>(type: K, actor: EventActor, payload: EventPayloads[K]): string;
+  /**
+   * Добавить событие в транзакцию. Возвращает его id: на него можно сослаться в state или другом событии.
+   * Payload можно передать функцией от id, если событие ссылается само на себя (human.requested.requestId).
+   */
+  emit<K extends EventType>(type: K, actor: EventActor, payload: EventPayloads[K] | ((id: string) => EventPayloads[K])): string;
 };
 
 /** Чистая функция: новый state по текущему. События добавляются через ctx.emit. */
@@ -113,6 +116,24 @@ export class TaskStore {
     const violations = checkInvariants(state, key);
     if (violations.length > 0) throw new TaskCorruptedError(key, t.state, violations.join("; "));
     return { state, bytes };
+  }
+
+  /** Событие без изменения state (02-storage.md §6.2: «Меняет state = нет»): прямо в журнал. */
+  async appendDirect<K extends EventType>(key: string, type: K, actor: EventActor, payload: EventPayloads[K]): Promise<TaskEvent> {
+    const state = await this.load(key);
+    const tail = await this.journal(key).readTail(1);
+    const after = [state.lastEventId, tail.events.at(-1)?.id].filter((x): x is string => !!x).sort().at(-1) ?? null;
+    const event = {
+      id: this.deps.ids.next(after),
+      timestamp: this.deps.clock.now().toISOString(),
+      taskKey: key,
+      type,
+      stateVersion: state.version,
+      actor,
+      payload,
+    } as TaskEvent;
+    await this.journal(key).append([event]);
+    return event;
   }
 
   /** Только state.json, без журнала. */
@@ -213,7 +234,8 @@ export class TaskStore {
       emit: (type, actor, payload) => {
         const id = this.deps.ids.next(last);
         last = id;
-        events.push({ id, timestamp: now, taskKey: key, type, stateVersion: version, actor, payload } as TaskEvent);
+        const body = typeof payload === "function" ? payload(id) : payload;
+        events.push({ id, timestamp: now, taskKey: key, type, stateVersion: version, actor, payload: body } as TaskEvent);
         return id;
       },
     };
@@ -247,9 +269,10 @@ export class TaskStore {
   }
 
   private async afterWrite(key: string, state: TaskState, events: TaskEvent[]): Promise<TaskState> {
-    this.faults.check("after-state-commit");
+    const info = { events: events.map((e) => e.type) };
+    this.faults.check("after-state-commit", info);
     await this.journal(key).append(events);
-    this.faults.check("after-event-append");
+    this.faults.check("after-event-append", info);
     try {
       await this.deps.afterCommit?.(state);
     } catch (err) {
