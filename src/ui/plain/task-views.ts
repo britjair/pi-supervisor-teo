@@ -46,7 +46,7 @@ export function lockText(lock: LockInspection, now: Date): string {
   return msg.lock.statusLine(lock.lock, now, lock.alive);
 }
 
-/** sdlc status KEY */
+/** teo status KEY */
 export function renderStatus(
   v: TaskViewData,
   ctx: ViewContext & { lock: LockInspection; currentPolicyHash: PolicyHash },
@@ -104,7 +104,7 @@ export function taskRows(
   return table(rows, "   ");
 }
 
-/** sdlc history без KEY: все задачи проекта, включая завершённые. */
+/** teo history без KEY: все задачи проекта, включая завершённые. */
 export function renderTaskHistory(views: readonly TaskViewData[], ctx: ViewContext): string {
   const rows = views.map((v) => [
     v.key,
@@ -116,7 +116,7 @@ export function renderTaskHistory(views: readonly TaskViewData[], ctx: ViewConte
   return [msg.history.tasksTitle(views.length), ...table(rows).map((r) => "  " + r)].join("\n") + "\n";
 }
 
-/** sdlc history KEY: лента событий. */
+/** teo history KEY: лента событий. */
 export function renderEvents(
   key: string,
   events: ReadonlyArray<{ event: TaskEvent; undelivered: boolean }>,

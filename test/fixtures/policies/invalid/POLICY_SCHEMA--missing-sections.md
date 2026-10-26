@@ -1,5 +1,5 @@
 ---
-schema: sdlc/v1
+schema: teo/v1
 workflow:   # expect: REQUIRED
   stages: {}   # expect: EMPTY_MAP
 agents: []   # expect: INVALID_TYPE

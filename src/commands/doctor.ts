@@ -1,4 +1,4 @@
-// sdlc doctor, 05-cli-ui.md §7: окружение, Policy, Pi SDK и модели, project root, хранилище .sdlc.
+// teo doctor, 05-cli-ui.md §7: окружение, Policy, Pi SDK и модели, project root, хранилище .teo.
 // Без --fix ничего не меняет; исправления — doctor-fix.ts.
 
 import { constants } from "node:fs";
@@ -58,7 +58,7 @@ function modelUsage(policy: LoadedPolicy): string {
 export async function collectDoctorChecks(
   ctx: AppContext,
   runtime?: AgentRuntime,
-): Promise<{ checks: DoctorCheck[]; policyValid: boolean; store: ProjectStore; sdlcExists: boolean }> {
+): Promise<{ checks: DoctorCheck[]; policyValid: boolean; store: ProjectStore; teoExists: boolean }> {
   const checks: DoctorCheck[] = [];
   const s = ctx.style;
 
@@ -145,16 +145,16 @@ export async function collectDoctorChecks(
     checks.push({ id: "project.access", level: "error", title: msg.doctor.projectAccessFailed(code), details: [] });
   }
 
-  // Хранилище: только если .sdlc уже есть, doctor его не создаёт
+  // Хранилище: только если .teo уже есть, doctor его не создаёт
   const store = openProject(ctx, { project, policy });
-  const sdlcExists = await store.sdlcExists();
-  if (sdlcExists) {
+  const teoExists = await store.teoExists();
+  if (teoExists) {
     checks.push(...(await storageChecks(ctx, store)));
   } else {
-    checks.push({ id: "storage", level: "info", title: msg.doctor.sdlcAbsent, details: [] });
+    checks.push({ id: "storage", level: "info", title: msg.doctor.teoAbsent, details: [] });
   }
 
-  return { checks, policyValid: policy !== null, store, sdlcExists };
+  return { checks, policyValid: policy !== null, store, teoExists };
 }
 
 /** Свежий heartbeat живого владельца: проект просто занят, это не проблема. */
@@ -269,7 +269,7 @@ async function storageChecks(ctx: AppContext, store: ProjectStore): Promise<Doct
           id: "storage.orphans",
           level: "info",
           title: S.orphans(orphans.length),
-          details: orphans.map((p) => path.relative(layout.sdlcDir, p)),
+          details: orphans.map((p) => path.relative(layout.teoDir, p)),
         },
   );
   return out;
@@ -317,7 +317,7 @@ export async function runDoctor(ctx: AppContext, opts: { fix: boolean; piRuntime
     out(ctx.style.yellow(msg.doctor.fix.policyFirst) + "\n");
     return ExitCode.config;
   }
-  if (!first.sdlcExists) {
+  if (!first.teoExists) {
     out(msg.doctor.fix.nothing + "\n");
     return exitCode(first.policyValid, first.checks);
   }

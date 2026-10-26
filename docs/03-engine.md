@@ -12,7 +12,7 @@
 
 Между шагами процесс может умереть в любой точке. Следующий запуск продолжит с той фазы, которая записана в state. Поэтому отдельная «таблица восстановления» почти не нужна: recovery — это обработчики фаз `*_running`, выполненные при старте (§8).
 
-SDLC-этапы (`state.stage`) и фазы движка ортогональны. Фазы одинаковы для любого workflow; этапы приходят из Policy.
+Этапы процесса (`state.stage`) и фазы движка ортогональны. Фазы одинаковы для любого workflow; этапы приходят из Policy.
 
 ## 2. Фазы
 
@@ -159,7 +159,7 @@ async function runTask(taskKey: string, ctx: EngineContext): Promise<ExitOutcome
 Каждый prompt (и агенту, и supervisor) начинается строкой:
 
 ```text
-[sdlc:prompt id=01JB2X… kind=evaluate cycle=12]
+[teo:prompt id=01JB2X… kind=evaluate cycle=12]
 ```
 
 Маркер нужен recovery: по наличию `id` в файле сессии определяется, был ли prompt доставлен (Pi 1.4 пишет user-сообщение на диск сразу). Модели в system prompt сказано игнорировать эту строку.
@@ -234,7 +234,7 @@ onSupervisorSettled(outcome):
 Follow-up:
 
 ```text
-[sdlc:prompt id=… kind=protocol_retry cycle=12]
+[teo:prompt id=… kind=protocol_retry cycle=12]
 Ты завершил ход без вызова управляющего инструмента. Цикл должен завершиться ровно одним из:
 transition_stage, continue_current_agent, restart_current_agent, ask_human, schedule_recheck,
 block_task, cancel_task. Текущий expectedStateVersion: 43.
@@ -281,7 +281,7 @@ commit: phase = supervisor_pending, status = active, pendingHumanRequest = null,
 │ Подтверждаете план реализации (artifacts/plan.md, версия sha256:7c1e…)?  │
 │                                                                          │
 │ Контекст: план обновлён после ваших правок к разделу «Возвраты».         │
-│ Вложения: .sdlc/tasks/PAY-142/artifacts/plan.md                          │
+│ Вложения: .teo/tasks/PAY-142/artifacts/plan.md                          │
 ╰──────────────────────────────────────────────────────────────────────────╯
 ❯ Да, план одобрен
   Нет, нужны правки
@@ -409,10 +409,10 @@ commit: phase = supervisor_pending, status = active, pendingHumanRequest = null,
 
 ## 11. Разблокировка
 
-`sdlc resume <KEY>` для задачи со `status = blocked`:
+`teo resume <KEY>` для задачи со `status = blocked`:
 
 1. Показать причину (`statusReason`).
-2. Для `POLICY_STAGE_MISSING`, `STATE_TAMPERED` — отказать и направить в `sdlc recover <KEY>`.
+2. Для `POLICY_STAGE_MISSING`, `STATE_TAMPERED` — отказать и направить в `teo recover <KEY>`.
 3. Иначе спросить комментарий человека («Что изменилось?»).
 4. `commit`: `status = active`, `phase = supervisor_pending`, `trigger = { kind: "unblocked", ref: <eventId> }`, события `human.responded`, `task.unblocked`.
 
@@ -474,10 +474,10 @@ onHumanMessage(text):
 ```
 
 - Срок сравнивается с настенными часами на каждом тике, а не через один `setTimeout(delay)`. Если ноутбук спал, проверка начнётся на первом тике после пробуждения.
-- Срок хранится в state (`wait.dueAt`), а не в памяти процесса. Остановка и `sdlc resume` отсчёт не сбрасывают. Если срок прошёл, пока `sdlc` не работал, перепроверка начинается сразу после открытия задачи.
+- Срок хранится в state (`wait.dueAt`), а не в памяти процесса. Остановка и `teo resume` отсчёт не сбрасывают. Если срок прошёл, пока `teo` не работал, перепроверка начинается сразу после открытия задачи.
 - Перед `agent_pending` после пробуждения, как обычно, срабатывает policy gate (§7.3).
 - Без TTY процесс ждёт сам и печатает строку в начале ожидания и раз в 10 минут. С флагом `--no-wait` он сразу выходит с exit `6`, если срок не наступил. Так задачу можно будить из cron или скрипта, при этом сам CLI фоновой работы не ведёт.
-- `sdlc resume <KEY> --now` вызывает `finish("skipped_by_human")` без ожидания.
+- `teo resume <KEY> --now` вызывает `finish("skipped_by_human")` без ожидания.
 - Сообщение человека во время ожидания («ревьюер в отпуске до понедельника», «approve дали устно») уходит supervisor-у, а не агенту, как и любой ответ человека (§3).
 
 ### 12.4. Перепроверка
@@ -493,10 +493,10 @@ Prompt `kind = recheck` (шаблон в [04-agents.md §7.3](04-agents.md#73-co
 - Пока задача в `waiting`, модели не вызываются.
 - Каждая перепроверка стоит одного agent prompt и одного supervisor-цикла. Их число ограничено `stage.recheck.maxCount`, поэтому циклы с trigger `recheck_settled` не учитываются в `maxCyclesPerStage`: долгое ревью не упирается в общий лимит циклов.
 - Выбор задержки (нарастающие интервалы, нерабочее время, когда напомнить ревьюеру, когда звать человека) задаёт Policy. Для этого в evaluation prompt есть текущее локальное время и статистика ожиданий этапа ([04-agents.md §7.5](04-agents.md#supervisor-evaluation-prompt)).
-- Ожидающий процесс держит project lock: другие задачи этого проекта в это время не запускаются. Выход клавишей `q` освобождает проект, а `sdlc resume` продолжит отсчёт. Ожидание нескольких задач в одном процессе — post-MVP.
+- Ожидающий процесс держит project lock: другие задачи этого проекта в это время не запускаются. Выход клавишей `q` освобождает проект, а `teo resume` продолжит отсчёт. Ожидание нескольких задач в одном процессе — post-MVP.
 
 ### 12.6. Статус, отмена, recovery
 
-- Ожидание не меняет `status`: задача `active`, срок виден в меню и в `sdlc status`.
-- `sdlc cancel` и `sdlc recover` работают как обычно. Из другого процесса — только после выхода ожидающего: lock общий.
+- Ожидание не меняет `status`: задача `active`, срок виден в меню и в `teo status`.
+- `teo cancel` и `teo recover` работают как обычно. Из другого процесса — только после выхода ожидающего: lock общий.
 - Recovery в фазе `waiting` ничего не делает (§8.3): обработчик идемпотентен, всё нужное есть в `wait`.

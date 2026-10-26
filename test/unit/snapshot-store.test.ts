@@ -9,9 +9,9 @@ const policy = (raw: string) => ({ raw, hash: hashPolicyBytes(new TextEncoder().
 
 describe("PolicySnapshotStore", () => {
   it("сохраняет снимок по hash байт в байт, включая BOM и CRLF", async () => {
-    const dir = path.join(await tmpDir(), ".sdlc", "policies");
+    const dir = path.join(await tmpDir(), ".teo", "policies");
     const store = new PolicySnapshotStore(dir);
-    const p = policy("\uFEFF---\r\nschema: sdlc/v1\r\n---\r\nтело\r\n");
+    const p = policy("\uFEFF---\r\nschema: teo/v1\r\n---\r\nтело\r\n");
     const file = await store.save(p);
     expect(path.basename(file)).toBe(`${p.hash.slice("sha256:".length)}.md`);
     expect(hashPolicyBytes(await readFile(file))).toBe(p.hash);

@@ -1,5 +1,5 @@
 ---
-schema: sdlc/v1
+schema: teo/v1
 
 workflow:
   initialStage: discovr   # expect: INITIAL_STAGE_MISSING

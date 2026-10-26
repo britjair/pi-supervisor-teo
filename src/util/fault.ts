@@ -1,6 +1,6 @@
 // FaultInjector, 06-implementation.md §2.1: сбой в именованной точке для тестов восстановления.
 // В обычной работе — пустая функция. В процессе включается переменной окружения
-// SDLC_FAULT=<точка>:<kill|throw>; так integration-тесты убивают настоящий процесс sdlc.
+// TEO_FAULT=<точка>:<kill|throw>; так integration-тесты убивают настоящий процесс teo.
 
 export const FAULT_POINTS = [
   /** state.json записан, события ещё не дописаны в журнал */

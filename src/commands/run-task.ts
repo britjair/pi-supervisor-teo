@@ -16,11 +16,11 @@ export async function executeTask(ctx: AppContext, store: ProjectStore, key: str
     return await store.withLock({ command: "resume", taskKey: key }, async (lock) => {
       const state = await store.tasks.load(key);
       if (state.status === "blocked" && RECOVER_ONLY_CODES.includes(state.statusReason?.code ?? "")) {
-        throw new UsageError(`Задачу ${key} (${state.statusReason?.code}) можно восстановить только командой: sdlc recover ${key}`);
+        throw new UsageError(`Задачу ${key} (${state.statusReason?.code}) можно восстановить только командой: teo recover ${key}`);
       }
       if (state.status === "blocked") {
         if (!ctx.human) {
-          ctx.stdout.write(`Задача ${key} заблокирована: ${state.statusReason?.message ?? "причина неизвестна"}. Для разблокировки запустите sdlc resume ${key} в терминале.\n`);
+          ctx.stdout.write(`Задача ${key} заблокирована: ${state.statusReason?.message ?? "причина неизвестна"}. Для разблокировки запустите teo resume ${key} в терминале.\n`);
           return ExitCode.waitingHuman;
         }
         ctx.human.print(`Задача ${key} заблокирована: ${state.statusReason?.message ?? "причина неизвестна"}`);
@@ -56,6 +56,6 @@ export async function executeTask(ctx: AppContext, store: ProjectStore, key: str
 
 export async function runResume(ctx: AppContext, key: string, opts: { noWait?: boolean; checkNow?: boolean }): Promise<number> {
   const { store } = await startCommand(ctx);
-  await store.tasks.readState(key); // не создавать .sdlc и lock для несуществующей задачи
+  await store.tasks.readState(key); // не создавать .teo и lock для несуществующей задачи
   return executeTask(ctx, store, key, opts);
 }

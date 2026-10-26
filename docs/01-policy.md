@@ -38,7 +38,7 @@ type LoadedPolicy = {
   path: string;
   raw: string;              // исходный текст целиком
   hash: `sha256:${string}`; // от байтов файла, см. 1.4
-  schema: "sdlc/v1";
+  schema: "teo/v1";
   spec: PolicySpec;         // нормализованный front matter с применёнными default
   body: string;             // Markdown после front matter
   warnings: PolicyWarning[];
@@ -65,12 +65,12 @@ hash = "sha256:" + createHash("sha256").update(rawBytes).digest("hex");
 
 Считается от исходных байтов файла без нормализации переводов строк и пробелов. Любое изменение, включая Markdown-часть, считается изменением политики.
 
-## 2. Схема `sdlc/v1`
+## 2. Схема `teo/v1`
 
 ### 2.1. Полная структура
 
 ```yaml
-schema: sdlc/v1                     # обязательно, ровно эта строка
+schema: teo/v1                     # обязательно, ровно эта строка
 
 workflow:
   initialStage: <stageId>           # обязательно
@@ -155,7 +155,7 @@ runtime:                            # опционально целиком
 
 Разрешение выполняет `resolveCliModel` из Pi SDK. Если указаны и суффикс `:<thinking>`, и поле `thinking`, это ошибка `POLICY_SCHEMA`.
 
-Существование модели и наличие авторизации проверяются не при валидации Policy, а при старте workflow и в `sdlc doctor`: валидация Policy не должна зависеть от сети и `auth.json`. Неизвестная модель при старте даёт ошибку конфигурации с exit code `2`.
+Существование модели и наличие авторизации проверяются не при валидации Policy, а при старте workflow и в `teo doctor`: валидация Policy не должна зависеть от сети и `auth.json`. Неизвестная модель при старте даёт ошибку конфигурации с exit code `2`.
 
 ### 2.4. `session: fresh | reuse`
 
@@ -195,7 +195,7 @@ Default обоих guards — `optional`.
 
 - по умолчанию `extensions: inherit` и у агентов, и у supervisor;
 - модель разрешается **после** загрузки расширений сессии. Если при `extensions: none` модель не находится, ошибка `MODEL_UNAVAILABLE` прямо подсказывает: «модель может предоставляться расширением; уберите `extensions: none`»;
-- `sdlc doctor` для каждого `modelRef` показывает, кто его предоставляет: встроенный провайдер или расширение (пакет).
+- `teo doctor` для каждого `modelRef` показывает, кто его предоставляет: встроенный провайдер или расширение (пакет).
 
 Инструменты, которые расширения регистрируют для supervisor-а, отсекаются allowlist-ом инструментов (см. [04-agents.md §5.1](04-agents.md#51-набор)). Поэтому `inherit` не расширяет полномочия supervisor-а.
 
@@ -221,7 +221,7 @@ code_review:
 
 `minMinutes > maxMinutes` — ошибка `POLICY_SCHEMA`.
 
-Ожидание идёт, только пока запущен `sdlc`: фонового процесса нет (раздел 4.2 исходной спецификации). Если процесс остановлен, проверка произойдёт при следующем `sdlc resume`, сразу, если срок уже прошёл.
+Ожидание идёт, только пока запущен `teo`: фонового процесса нет (раздел 4.2 исходной спецификации). Если процесс остановлен, проверка произойдёт при следующем `teo resume`, сразу, если срок уже прошёл.
 
 ## 3. Ссылочная и графовая валидация
 
@@ -259,7 +259,7 @@ code_review:
 ### 3.3. Формат вывода ошибок
 
 ```text
-SDLC configuration error
+Process configuration error
 
 File: /Users/user/.pi/SDLC.md
 Policy is invalid (3 problems):
@@ -273,8 +273,8 @@ Policy is invalid (3 problems):
   ✗ workflow
     No terminal stage is reachable from initialStage "requirements".
 
-Nothing was started and .sdlc was not modified.
-Fix ~/.pi/SDLC.md and restart the command. Check it with: sdlc doctor
+Nothing was started and .teo was not modified.
+Fix ~/.pi/SDLC.md and restart the command. Check it with: teo doctor
 ```
 
 Exit code — `2`. Номера строк берутся из YAML-узлов (`yaml` хранит `range`), для графовых ошибок — из узла этапа.
@@ -293,7 +293,7 @@ Exit code — `2`. Номера строк берутся из YAML-узлов (
 При первом использовании нового hash CLI сохраняет копию текста:
 
 ```text
-.sdlc/policies/<sha256-hex>.md
+.teo/policies/<sha256-hex>.md
 ```
 
 Снимки нужны, чтобы:
@@ -310,7 +310,7 @@ Exit code — `2`. Номера строк берутся из YAML-узлов (
 |---|---|---|
 | `confirm` | Показать diff и спросить «Продолжить по новой политике?» Да → применить. Нет → выйти без изменений (exit 0) | Не применять, остановиться с exit code `5` и подсказкой |
 | `latest` | Применить автоматически | Применить автоматически |
-| `pinned` | Отказать, предложить `sdlc recover <KEY> --accept-policy` | То же, exit code `5` |
+| `pinned` | Отказать, предложить `teo recover <KEY> --accept-policy` | То же, exit code `5` |
 
 Применение — одна атомарная запись state: `policyHash`, `policySchema`, событие `policy.changed { fromHash, toHash, mode, diff }`, а также `phase = supervisor_pending` с `trigger = policy_changed`, если в момент изменения не идёт agent run. Так supervisor увидит новую политику до следующего управляющего решения.
 
@@ -339,7 +339,7 @@ Current stage "review" exists in the new policy.
 - автоматическое продолжение запрещено во всех режимах;
 - state: `status = blocked`, `statusReason.code = POLICY_STAGE_MISSING`;
 - событие `task.blocked`;
-- выход с подсказкой `sdlc recover <KEY>`, где пользователь выбирает существующий этап (см. [05-cli-ui.md](05-cli-ui.md#sdlc-recover)).
+- выход с подсказкой `teo recover <KEY>`, где пользователь выбирает существующий этап (см. [05-cli-ui.md](05-cli-ui.md#teo-recover)).
 
 ### 4.6. Изменился агент текущего этапа
 

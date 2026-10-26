@@ -39,7 +39,7 @@ export type AppContext = {
   process: ProcessInfo;
   nodeVersion: string;
   policyLoader: PolicyLoader;
-  /** .sdlc/debug.log: пишется всегда, в stderr — только с --verbose */
+  /** .teo/debug.log: пишется всегда, в stderr — только с --verbose */
   debugLog: DebugLog;
   log(message: string): void;
 };
@@ -76,7 +76,7 @@ export function createAppContext(o: AppOptions): AppContext {
     style,
     clock,
     ids: createIdGenerator(clock),
-    faults: faultsFromEnv(env["SDLC_FAULT"]),
+    faults: faultsFromEnv(env["TEO_FAULT"]),
     exec: execFileNoThrow,
     process: { pid: process.pid, hostname: os.hostname(), startedAt: clock.now().toISOString() },
     nodeVersion: process.versions.node,
@@ -84,7 +84,7 @@ export function createAppContext(o: AppOptions): AppContext {
     debugLog,
     log: (message) => {
       debugLog.write(message);
-      if (o.verbose) o.stderr.write(style.dim(`[sdlc] ${message}`) + "\n");
+      if (o.verbose) o.stderr.write(style.dim(`[teo] ${message}`) + "\n");
     },
   };
 }
@@ -93,7 +93,7 @@ export type Preflight = { project: ProjectRoot; policy: LoadedPolicy };
 
 /**
  * Общий старт команд (05-cli-ui.md §1): project root (только чтение), затем preflight Policy.
- * Ошибка Policy бросается как PolicyError (exit 2) до любой записи в .sdlc.
+ * Ошибка Policy бросается как PolicyError (exit 2) до любой записи в .teo.
  */
 export async function preflight(ctx: AppContext): Promise<Preflight> {
   const project = await detectProjectRoot(ctx.cwd, ctx.exec);
@@ -101,7 +101,7 @@ export async function preflight(ctx: AppContext): Promise<Preflight> {
   return { project, policy };
 }
 
-/** Хранилище проекта. Ничего не создаёт: .sdlc появляется при первой mutating-операции. */
+/** Хранилище проекта. Ничего не создаёт: .teo появляется при первой mutating-операции. */
 export function openProject(ctx: AppContext, pf: { project: ProjectRoot; policy: LoadedPolicy | null }): ProjectStore {
   const store = new ProjectStore({
     projectRoot: pf.project.root,

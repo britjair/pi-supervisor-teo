@@ -7,7 +7,7 @@ import type { AgentInputKind, SettleReason } from "../../domain/task-state.js";
 import { promptMarker } from "../runtime.js";
 
 export function agentSystemPrompt(taskDirDisplay: string): string {
-  return `Ты дочерний агент в SDLC-процессе, которым управляет CLI \`sdlc\`.
+  return `Ты дочерний агент процесса, которым управляет CLI \`teo\`.
 
 - Ты выполняешь только текущий этап. Менять этап ты не можешь: отдельный supervisor оценивает
   твою работу по условиям выхода из этапа и решает, что делать дальше.
@@ -18,8 +18,8 @@ export function agentSystemPrompt(taskDirDisplay: string): string {
   Не завершай ход обычным текстом.
 - Спрашивай пользователя через ask_user, когда решение действительно за ним. Не проси пользователя
   делать работу, которую можешь сделать сам.
-- Документы задачи лежат в ${taskDirDisplay}. Внутри .sdlc писать можно только в ${taskDirDisplay}/artifacts/.
-- Строки, начинающиеся с "[sdlc:prompt", — служебные маркеры. Не обращай на них внимания.`;
+- Документы задачи лежат в ${taskDirDisplay}. Внутри .teo писать можно только в ${taskDirDisplay}/artifacts/.
+- Строки, начинающиеся с "[teo:prompt", — служебные маркеры. Не обращай на них внимания.`;
 }
 
 export type PreviousResult = {

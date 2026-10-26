@@ -1,5 +1,5 @@
 // Критерии готовности M1 (06-implementation.md §3): любая команда с невалидной Policy
-// завершается с кодом 2 и не создаёт .sdlc; doctor печатает все ошибки с номерами строк.
+// завершается с кодом 2 и не создаёт .teo; doctor печатает все ошибки с номерами строк.
 
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
@@ -36,10 +36,10 @@ const BAD_POLICIES: Array<{ name: string; setup: (sb: Sandbox) => Promise<void> 
   { name: "ошибки графа", setup: () => undefined, policy: fixture("POLICY_GRAPH--several") },
 ];
 
-async function sdlcCreatedAnywhere(sb: Sandbox): Promise<boolean> {
+async function teoCreatedAnywhere(sb: Sandbox): Promise<boolean> {
   const walk = async (dir: string): Promise<boolean> => {
     for (const e of await readdir(dir, { withFileTypes: true })) {
-      if (e.name === ".sdlc") return true;
+      if (e.name === ".teo") return true;
       if (e.isDirectory() && e.name !== ".git" && (await walk(path.join(dir, e.name)))) return true;
     }
     return false;
@@ -47,14 +47,14 @@ async function sdlcCreatedAnywhere(sb: Sandbox): Promise<boolean> {
   return walk(sb.root);
 }
 
-describe("невалидная Policy → exit 2, .sdlc не создан", () => {
+describe("невалидная Policy → exit 2, .teo не создан", () => {
   for (const bad of BAD_POLICIES) {
-    it.each(COMMANDS.map((c) => [c.join(" ") || "(без аргументов)", c]))(`${bad.name}: sdlc %s`, async (_label, args) => {
+    it.each(COMMANDS.map((c) => [c.join(" ") || "(без аргументов)", c]))(`${bad.name}: teo %s`, async (_label, args) => {
       const sb = await sandbox(bad.policy);
       await bad.setup(sb);
       const r = await runCli(sb, args as string[]);
       expect(r.code, r.stdout + r.stderr).toBe(2);
-      expect(await sdlcCreatedAnywhere(sb)).toBe(false);
+      expect(await teoCreatedAnywhere(sb)).toBe(false);
       const out = r.stdout + r.stderr;
       expect(out.includes(sb.policyPath) || out.includes("~/.pi/SDLC.md")).toBe(true);
     });
@@ -68,12 +68,12 @@ describe("сообщение об ошибке Policy", () => {
     expect(r.stdout).toBe("");
     expect(r.stderr).toBe(
       [
-        "Ошибка конфигурации SDLC",
+        "Ошибка конфигурации процесса",
         "",
         `Файл: ${sb.policyPath}`,
         "Обязательный файл не найден.",
         "",
-        "Ничего не запущено, .sdlc не изменён.",
+        "Ничего не запущено, .teo не изменён.",
         "Создайте ~/.pi/SDLC.md и повторите команду. Автоматически он не создаётся.",
         "",
       ].join("\n"),
@@ -92,7 +92,7 @@ describe("сообщение об ошибке Policy", () => {
       "✗ workflow.stages.qa_ready.agent (строка 29)",
       "✗ workflow.initialStage (строка 5)",
       "! workflow.stages.qa_ready (строка 27)",
-      "Исправьте ~/.pi/SDLC.md и повторите команду. Проверка: sdlc doctor",
+      "Исправьте ~/.pi/SDLC.md и повторите команду. Проверка: teo doctor",
     ]) {
       expect(r.stderr).toContain(line);
     }
@@ -100,7 +100,7 @@ describe("сообщение об ошибке Policy", () => {
   });
 });
 
-describe("sdlc doctor", () => {
+describe("teo doctor", () => {
   it("валидная Policy без авторизации Pi: показывает ошибки моделей, ничего не создаёт", async () => {
     const sb = await sandbox(readFileSync(examplePolicy));
     const r = await runCli(sb, ["doctor"]);
@@ -111,7 +111,7 @@ describe("sdlc doctor", () => {
     expect(r.stdout).toMatch(/^✓ Policy ~\/\.pi\/SDLC\.md · sha256:[0-9a-f]{4}…[0-9a-f]{2} · 8 этапов, 5 агентов$/m);
     expect(r.stdout).toContain(`✓ Проект ${sb.project} (корень git-репозитория)`);
     expect(r.stdout).toContain("✗ Модель default недоступна или не авторизована");
-    expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
+    expect(existsSync(path.join(sb.project, ".teo"))).toBe(false);
   });
 
   it("каждую ошибку Policy печатает с номером строки, exit 2", async () => {
@@ -144,11 +144,11 @@ describe("sdlc doctor", () => {
     expect(r.stdout).toContain(`Проект ${sb.project} (текущий каталог, git-репозиторий не найден)`);
   });
 
-  it("--fix без .sdlc: исправлять нечего, каталог не создаётся", async () => {
+  it("--fix без .teo: исправлять нечего, каталог не создаётся", async () => {
     const sb = await sandbox(readFileSync(examplePolicy));
     const r = await runCli(sb, ["doctor", "--fix"]);
     expect(r.stdout).toContain("Исправлять нечего.");
-    expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
+    expect(existsSync(path.join(sb.project, ".teo"))).toBe(false);
   });
 });
 
@@ -157,7 +157,7 @@ describe("интерфейс CLI на русском", () => {
     const sb = await sandbox();
     const r = await runCli(sb, ["--help"]);
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain("Использование: sdlc");
+    expect(r.stdout).toContain("Использование: teo");
     expect(r.stdout).toContain("Команды:");
     expect(r.stdout).toContain("диагностика окружения, Policy и хранилища");
     expect(r.stdout).not.toMatch(/Usage:|Options:|Commands:/);
@@ -175,7 +175,7 @@ describe("интерфейс CLI на русском", () => {
     const sb = await sandbox();
     const r = await runCli(sb, ["resum", "T-1"]);
     expect(r.code).toBe(1);
-    expect(r.stderr).toBe("Неизвестная команда «resum». Возможно, имелась в виду «resume».\nСправка: sdlc --help\n");
+    expect(r.stderr).toBe("Неизвестная команда «resum». Возможно, имелась в виду «resume».\nСправка: teo --help\n");
   });
 
   it("неизвестный параметр и отсутствующий аргумент", async () => {
@@ -191,11 +191,11 @@ describe("интерфейс CLI на русском", () => {
     expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it("валидная Policy: resume отсутствующей задачи → exit 4 без создания .sdlc", async () => {
+  it("валидная Policy: resume отсутствующей задачи → exit 4 без создания .teo", async () => {
     const sb = await sandbox(readFileSync(examplePolicy));
     const r = await runCli(sb, ["resume", "T-1"]);
     expect(r.code).toBe(4);
     expect(r.stderr).toContain("Задача T-1 не найдена");
-    expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
+    expect(existsSync(path.join(sb.project, ".teo"))).toBe(false);
   });
 });

@@ -126,7 +126,7 @@ export class Harness {
   }
 
   taskDir(key = "T-1"): string {
-    return path.join(this.sb.project, ".sdlc", "tasks", key);
+    return path.join(this.sb.project, ".teo", "tasks", key);
   }
 
   async state(key = "T-1"): Promise<TaskState> {

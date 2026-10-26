@@ -197,12 +197,12 @@ export function policyErrorHeadline(code: PolicyErrorCode, problems: number): st
 }
 
 export const msg = {
-  policyErrorTitle: "Ошибка конфигурации SDLC",
+  policyErrorTitle: "Ошибка конфигурации процесса",
   file: (p: string) => `Файл: ${p}`,
   line: (n: number) => `строка ${n}`,
-  nothingStarted: "Ничего не запущено, .sdlc не изменён.",
+  nothingStarted: "Ничего не запущено, .teo не изменён.",
   createPolicy: (p: string) => `Создайте ${p} и повторите команду. Автоматически он не создаётся.`,
-  fixPolicy: (p: string) => `Исправьте ${p} и повторите команду. Проверка: sdlc doctor`,
+  fixPolicy: (p: string) => `Исправьте ${p} и повторите команду. Проверка: teo doctor`,
   warningsTitle: (n: number) => `Предупреждения (${n}):`,
 
   unexpectedError: (m: string) => `Непредвиденная ошибка: ${m}`,
@@ -210,7 +210,7 @@ export const msg = {
   debugLogHint: (file: string) => `Подробности: ${file} (или повторите команду с флагом --verbose).`,
 
   cli: {
-    description: "Локальный контроллер SDLC-процесса из ~/.pi/SDLC.md",
+    description: "Supervisor процессов для Pi: ведёт задачи по процессу из ~/.pi/SDLC.md",
     version: "показать версию",
     help: "показать справку",
     helpCommand: "показать справку по команде",
@@ -253,7 +253,7 @@ export const msg = {
       optionMissingArgument: (name: string) => `Параметру «${name}» нужно значение.`,
       excessArguments: "Лишние аргументы.",
       invalidArgument: (m: string) => `Недопустимое значение: ${m}`,
-      seeHelp: "Справка: sdlc --help",
+      seeHelp: "Справка: teo --help",
     },
   },
 
@@ -268,7 +268,7 @@ export const msg = {
   },
 
   menu: {
-    title: "Контроллер SDLC",
+    title: "Pi Supervisor TEO",
     project: (root: string) => `Проект: ${root}`,
     policy: (p: string, hash: string, stages: number) => `Policy: ${p} · ${shortHash(hash)} · ${plurals.stages(stages)}`,
     question: "Что вы хотите сделать?",
@@ -278,7 +278,7 @@ export const msg = {
     exit: "Выход",
     back: "Назад",
     corrupted: (key: string) => `⚠ ${key} повреждена`,
-    corruptedHint: (key: string) => `Задача ${key} повреждена и не открывается. Подробности: sdlc doctor`,
+    corruptedHint: (key: string) => `Задача ${key} повреждена и не открывается. Подробности: teo doctor`,
     stageMissing: (stage: string) => `⚠ этап «${stage}» отсутствует в Policy`,
     taskActions: {
       resume: "Продолжить",
@@ -288,10 +288,10 @@ export const msg = {
     },
     nonInteractiveHint: [
       "Команды:",
-      "  sdlc new KEY --title T --description-file F   создать задачу",
-      "  sdlc status [KEY]                             состояние",
-      "  sdlc history [KEY]                            задачи и журнал событий",
-      "  sdlc cancel KEY --reason R                    отменить задачу",
+      "  teo new KEY --title T --description-file F   создать задачу",
+      "  teo status [KEY]                             состояние",
+      "  teo history [KEY]                            задачи и журнал событий",
+      "  teo cancel KEY --reason R                    отменить задачу",
     ].join("\n"),
     noTasks: "В проекте нет задач.",
     pressEnter: "Enter — продолжить",
@@ -308,22 +308,22 @@ export const msg = {
     title: (key: string, title: string) => `Восстановление ${key} · ${title}`,
     question: "Что сделать?",
     finished: (key: string) => `Задача ${key} завершена: восстанавливать нечего.`,
-    nothing: (key: string) => `Задача ${key} не требует ручного восстановления. Продолжить: sdlc resume ${key}`,
+    nothing: (key: string) => `Задача ${key} не требует ручного восстановления. Продолжить: teo resume ${key}`,
     setStage: "Перевести задачу на этап…",
     chooseStage: "На какой этап перевести задачу? Агент этапа начнёт его заново.",
     currentStage: "(текущий)",
     acceptPolicy: (from: string, to: string) => `Принять текущую Policy (${from} → ${to})`,
     acceptTampered: "Принять изменённый state.json как есть",
-    restoreBeforeTamper: "Восстановить state, записанный sdlc до подмены",
+    restoreBeforeTamper: "Восстановить state, записанный teo до подмены",
     unblock: "Разблокировать с комментарием (supervisor продолжит)",
     unblockNote: "Что изменилось?",
     unblockNoteEmpty: "Нужен комментарий.",
     exit: "Выйти без изменений",
-    tamperedTitle: (file: string) => `Изменения в ${file} относительно последнего state, записанного sdlc:`,
+    tamperedTitle: (file: string) => `Изменения в ${file} относительно последнего state, записанного teo:`,
     tamperedNoDiff: "  отличий в полях задачи нет",
     tamperedMore: (n: number) => `  … ещё ${n}`,
     tamperedInvalid: (file: string, reason: string) => `Копию ${file} принять нельзя: ${reason}`,
-    tamperedNoBefore: "Состояния до подмены не сохранилось (задача заблокирована старой версией sdlc).",
+    tamperedNoBefore: "Состояния до подмены не сохранилось (задача заблокирована старой версией teo).",
     tamperedNoCopies: "Копии изменённого state.json не найдены.",
     sessionCorrupted: (file: string, reason: string) => `Файл сессии ${file} повреждён: ${reason}`,
     policyStageMissing: (stage: string) => `Этапа «${stage}» нет в текущей Policy: выберите этап.`,
@@ -336,12 +336,12 @@ export const msg = {
       session: (key: string, label: string) => `✓ ${key}: ${label}.`,
       unblock: (key: string) => `✓ Задача ${key} разблокирована.`,
     },
-    next: (key: string) => `Следующий шаг: sdlc resume ${key}`,
+    next: (key: string) => `Следующий шаг: teo resume ${key}`,
     nonInteractive: (key: string, hints: string[]) =>
       [`Задаче ${key} нужно ручное восстановление, а терминала нет. Варианты:`, ...hints.map((h) => `  ${h}`)].join("\n"),
-    hintSetStage: (key: string) => `sdlc recover ${key} --set-stage <этап>`,
-    hintAcceptPolicy: (key: string) => `sdlc recover ${key} --accept-policy`,
-    hintTerminal: (key: string) => `sdlc recover ${key} в терминале — подмена state и повреждённая сессия разбираются только интерактивно`,
+    hintSetStage: (key: string) => `teo recover ${key} --set-stage <этап>`,
+    hintAcceptPolicy: (key: string) => `teo recover ${key} --accept-policy`,
+    hintTerminal: (key: string) => `teo recover ${key} в терминале — подмена state и повреждённая сессия разбираются только интерактивно`,
   },
 
   newTask: {
@@ -358,7 +358,7 @@ export const msg = {
     summary: (key: string, title: string) => `${key} · ${title}`,
     created: (key: string, stage: string, agent: string) => `✓ Задача ${key} создана · этап «${stage}» · agent ${agent}`,
     notStarted: (key: string) =>
-      `Запуск агентов ещё не реализован (этап M3): задача ждёт запуска агента. Состояние: sdlc status ${key}`,
+      `Запуск агентов ещё не реализован (этап M3): задача ждёт запуска агента. Состояние: teo status ${key}`,
     keyProblem: (p: TaskKeyProblem | "duplicate", key: string, existing?: string) => {
       switch (p) {
         case "empty":
@@ -382,7 +382,7 @@ export const msg = {
     titleTooLong: (max: number) => `Название длиннее ${max} символов.`,
     descriptionEmpty: "Описание не может быть пустым.",
     missingFields: (fields: string[]) =>
-      `Без терминала все поля обязательны. Не указано: ${fields.join(", ")}.\nПример: sdlc new PAY-142 --title "Оплата через СБП" --description-file task.txt`,
+      `Без терминала все поля обязательны. Не указано: ${fields.join(", ")}.\nПример: teo new PAY-142 --title "Оплата через СБП" --description-file task.txt`,
     descriptionConflict: "Укажите описание одним способом: --description или --description-file.",
     descriptionFileUnreadable: (file: string, code: string) => `Не удалось прочитать файл описания ${file} (${code}).`,
   },
@@ -391,7 +391,7 @@ export const msg = {
     confirm: (key: string, title: string) => `Отменить задачу ${key} · ${title}? Отмену нельзя откатить.`,
     reason: "Причина отмены",
     reasonEmpty: "Причина не может быть пустой.",
-    reasonRequired: "Без терминала нужно указать причину: sdlc cancel KEY --reason \"…\"",
+    reasonRequired: "Без терминала нужно указать причину: teo cancel KEY --reason \"…\"",
     done: (key: string) => `✓ Задача ${key} отменена.`,
     declined: "Задача не отменена.",
     alreadyFinished: (key: string, status: TaskStatus) =>
@@ -400,11 +400,11 @@ export const msg = {
   },
 
   lock: {
-    conflictTitle: "Проект занят другим процессом sdlc",
+    conflictTitle: "Проект занят другим процессом teo",
     holder: (h: NonNullable<LockHolder>, now: Date) =>
       `  PID ${h.pid} на ${h.hostname}${h.taskKey ? `, задача ${h.taskKey}` : ""}, команда ${h.command}, heartbeat ${formatAgo(h.heartbeatAt, now)}`,
-    holderUnknown: "  Lock-файл только что создан или повреждён: sdlc doctor покажет подробности.",
-    viewStatus: (key: string | null) => `Посмотреть состояние: sdlc status${key ? ` ${key}` : ""}`,
+    holderUnknown: "  Lock-файл только что создан или повреждён: teo doctor покажет подробности.",
+    viewStatus: (key: string | null) => `Посмотреть состояние: teo status${key ? ` ${key}` : ""}`,
     statusLine: (h: NonNullable<LockHolder>, now: Date, alive: boolean | null) =>
       `PID ${h.pid} на ${h.hostname}${h.taskKey ? ` · задача ${h.taskKey}` : ""} · heartbeat ${formatAgo(h.heartbeatAt, now)}` +
       (alive === false ? " · процесс не найден (lock протух)" : alive === null ? " · другой хост" : ""),
@@ -443,7 +443,7 @@ export const msg = {
     usage: (inp: number, out: number, cost: number | null) =>
       `in ${compact(inp)} · out ${compact(out)}${cost !== null ? ` · $${cost.toFixed(2)}` : ""}`,
     summaryTitle: (n: number) => `Задачи в работе: ${n}`,
-    finishedCount: (n: number) => `Завершённых и отменённых: ${n} (sdlc history)`,
+    finishedCount: (n: number) => `Завершённых и отменённых: ${n} (teo history)`,
   },
 
   history: {
@@ -455,12 +455,12 @@ export const msg = {
   },
 
   storage: {
-    gitignoreOk: ".sdlc/.gitignore на месте",
-    gitignoreMissing: ".sdlc/.gitignore отсутствует: git status агентов покажет .sdlc (--fix: создать)",
+    gitignoreOk: ".teo/.gitignore на месте",
+    gitignoreMissing: ".teo/.gitignore отсутствует: git status агентов покажет .teo (--fix: создать)",
     lockFree: "Lock проекта свободен",
     lockLive: (line: string) => `Проект занят: ${line}`,
     lockStaleHeartbeat: (line: string) =>
-      `Lock с живым PID, но heartbeat давно не обновлялся: ${line}. PID мог быть переиспользован — снимите lock вручную, если sdlc не запущен`,
+      `Lock с живым PID, но heartbeat давно не обновлялся: ${line}. PID мог быть переиспользован — снимите lock вручную, если teo не запущен`,
     lockDead: (line: string) => `Протухший lock: ${line} (--fix: снять)`,
     lockForeign: (line: string) => `Lock другого хоста: ${line} (--fix: только с явным подтверждением)`,
     lockUnreadable: "Lock-файл не разбирается (--fix: снять, если он старше 30 с)",
@@ -476,14 +476,14 @@ export const msg = {
     refsOk: "Ссылки state на файлы сессий и runs в порядке",
     refsMissing: (n: number) => `Ссылок state на отсутствующие файлы: ${n}`,
     refMissing: (key: string, file: string) => `${key}: нет файла ${file}`,
-    indexOk: ".sdlc/index.json согласован с задачами",
-    indexStale: ".sdlc/index.json расходится с задачами (--fix: перестроить; перестраивается и сам при следующей mutating-команде)",
+    indexOk: ".teo/index.json согласован с задачами",
+    indexStale: ".teo/index.json расходится с задачами (--fix: перестроить; перестраивается и сам при следующей mutating-команде)",
     orphansNone: "Осиротевших временных файлов нет",
     orphans: (n: number) => `Осиротевших временных файлов: ${n} (--fix: удалить; удаляются и сами при следующей mutating-команде)`,
   },
 
   doctor: {
-    title: "SDLC doctor",
+    title: "teo doctor",
     node: (v: string, min: string) => `Node.js ${v} (нужно ≥ ${min})`,
     policyOk: (p: string, hash: string, stages: number, agents: number) =>
       `Policy ${p} · ${shortHash(hash)} · ${plurals.stages(stages)}, ${plurals.agents(agents)}`,
@@ -501,7 +501,7 @@ export const msg = {
       `Проект ${root} (${source === "git" ? "корень git-репозитория" : "текущий каталог, git-репозиторий не найден"})`,
     projectAccess: "Права на чтение и запись каталога проекта",
     projectAccessFailed: (code: string) => `Нет прав на чтение и запись каталога проекта (${code})`,
-    sdlcAbsent: "Каталога .sdlc нет: задач в проекте ещё нет",
+    teoAbsent: "Каталога .teo нет: задач в проекте ещё нет",
     fix: {
       title: "Исправления:",
       nothing: "Исправлять нечего.",
@@ -511,13 +511,13 @@ export const msg = {
       busy: (line: string) => `Проект занят живым процессом (${line}): исправления хранилища невозможны.`,
       lockChanged: "lock изменился после проверки: его уже забрал другой процесс",
       lockDead: (line: string) => `Снять протухший lock: ${line}`,
-      lockForeign: (line: string) => `Снять lock другого хоста (${line}), если там sdlc точно не запущен`,
+      lockForeign: (line: string) => `Снять lock другого хоста (${line}), если там teo точно не запущен`,
       lockUnreadable: "Удалить нечитаемый lock-файл",
-      gitignore: "Создать .sdlc/.gitignore",
+      gitignore: "Создать .teo/.gitignore",
       orphans: (n: number) => `Удалить осиротевшие временные файлы (${n})`,
       journal: (key: string, broken: boolean, undelivered: number) =>
         `Починить журнал ${key}: ${[broken ? "обрезать оборванную запись" : null, undelivered > 0 ? `дописать outbox (${undelivered})` : null].filter(Boolean).join(", ")}`,
-      index: "Перестроить .sdlc/index.json",
+      index: "Перестроить .teo/index.json",
       policyFirst: "Сначала исправьте Policy: исправления хранилища выполняются только с валидной Policy.",
       after: (summary: string) => `После исправлений: ${summary.replace(/^Итог: /, "")}`,
     },
@@ -612,27 +612,27 @@ export function nextActionText(a: NextAction, ctx: { key: string; now: Date }): 
     case "agent_running":
       return a.live
         ? `agent ${a.agentId ?? "этапа"} работает`
-        : `agent ${a.agentId ?? "этапа"} прерван — будет восстановлен при sdlc resume ${ctx.key}`;
+        : `agent ${a.agentId ?? "этапа"} прерван — будет восстановлен при teo resume ${ctx.key}`;
     case "supervisor_evaluate":
       return a.trigger ? TRIGGERS[a.trigger](a.agentId ?? "агента") : "supervisor оценит состояние задачи";
     case "supervisor_running":
-      return a.live ? "supervisor принимает решение" : `supervisor прерван — цикл повторится при sdlc resume ${ctx.key}`;
+      return a.live ? "supervisor принимает решение" : `supervisor прерван — цикл повторится при teo resume ${ctx.key}`;
     case "apply_decision":
       return `применить решение ${a.action ?? ""}`.trim();
     case "waiting_human":
       return `ждёт ответа пользователя${a.fromAgent ? " (вопрос агента)" : ""}: ${clip(a.question)}`;
     case "waiting_recheck": {
-      if (a.overdue) return `перепроверка просрочена — начнётся при sdlc resume ${ctx.key}`;
+      if (a.overdue) return `перепроверка просрочена — начнётся при teo resume ${ctx.key}`;
       const left = formatDuration(new Date(a.dueAt).getTime() - ctx.now.getTime());
       const base = `перепроверка в ${formatWhen(a.dueAt, ctx.now)} (через ${left}): ${clip(a.waitingFor)}`;
-      return a.live ? base : `${base}; sdlc resume ${ctx.key} (--now — сразу)`;
+      return a.live ? base : `${base}; teo resume ${ctx.key} (--now — сразу)`;
     }
     case "terminal":
       return "завершена";
     case "cancelled":
       return "отменена";
     case "blocked":
-      return `заблокирована${a.reason ? `: ${clip(a.reason)}` : a.code ? `: ${a.code}` : ""} — sdlc ${a.code && RECOVER_HINT_CODES.includes(a.code) ? "recover" : "resume"} ${ctx.key}`;
+      return `заблокирована${a.reason ? `: ${clip(a.reason)}` : a.code ? `: ${a.code}` : ""} — teo ${a.code && RECOVER_HINT_CODES.includes(a.code) ? "recover" : "resume"} ${ctx.key}`;
   }
 }
 

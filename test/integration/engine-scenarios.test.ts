@@ -68,7 +68,7 @@ describe("агент", () => {
     await h.run();
     const prompts = h.promptsTo(EXPLORER);
     expect(prompts).toHaveLength(2);
-    expect(prompts[1]).toMatch(/^\[sdlc:prompt id=\S+ kind=continue run=/);
+    expect(prompts[1]).toMatch(/^\[teo:prompt id=\S+ kind=continue run=/);
     expect(prompts[1]).toContain("Сообщение supervisor:\nДобавь детали в план");
     const s = await h.state();
     expect(s.currentRun?.promptsSent).toHaveLength(2);
@@ -149,16 +149,16 @@ describe("агент", () => {
     h.fake
       .script(
         EXPLORER,
-        turn.tool("write", { path: ".sdlc/tasks/T-1/state.json", content: "{}" }),
+        turn.tool("write", { path: ".teo/tasks/T-1/state.json", content: "{}" }),
         turn.effect((c) => void results.push(c.lastToolResult?.content ?? "")),
-        turn.tool("write", { path: ".sdlc/tasks/T-1/artifacts/ok.md", content: "ok" }),
+        turn.tool("write", { path: ".teo/tasks/T-1/artifacts/ok.md", content: "ok" }),
         turn.effect((c) => void results.push(c.lastToolResult?.content ?? "")),
         turn.tools(["report_result", { summary: "готово" }], ["write", { path: "x.txt", content: "после отчёта" }]),
       )
       .script(SUPERVISOR, block());
     await h.run();
-    expect(results[0]).toContain("Запись в .sdlc/tasks/T-1/state.json запрещена");
-    expect(results[1]).toBe("Записано .sdlc/tasks/T-1/artifacts/ok.md");
+    expect(results[0]).toContain("Запись в .teo/tasks/T-1/state.json запрещена");
+    expect(results[1]).toBe("Записано .teo/tasks/T-1/artifacts/ok.md");
     const { existsSync } = await import("node:fs");
     expect(existsSync(path.join(h.project, "x.txt"))).toBe(false);
     expect((await h.state()).currentRun?.settleReason).toBe("reported_result");

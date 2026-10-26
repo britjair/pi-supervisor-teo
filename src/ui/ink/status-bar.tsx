@@ -1,6 +1,6 @@
 // Подвал экрана выполнения и строка активности со спиннером (05-cli-ui.md §4.1).
 // ⠋ supervisor проверяет результат reviewer · 00:00:18
-// └ SDLC: Ревью · supervisor · cycle 7 · in 41k out 3k · Ctrl+C — остановить ┘
+// └ TEO: Ревью · supervisor · cycle 7 · in 41k out 3k · Ctrl+C — остановить ┘
 import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { formatElapsed } from "./status-header.js";
@@ -61,7 +61,7 @@ export function StatusBar({
 
   const hint = stopConfirm ? "Остановить? (y/Esc)" : "Ctrl+C — остановить";
   const leftParts = [
-    `SDLC: ${stageTitle}`,
+    `TEO: ${stageTitle}`,
     role,
     cycle > 0 ? `cycle ${cycle}` : null,
     ...usageParts,

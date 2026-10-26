@@ -8,7 +8,7 @@ import { redact } from "../../util/redact.js";
 import type { EngineCore } from "../../workflow/context.js";
 import { controlSchemas, validateDecision, type ValidatorResolvers } from "../../workflow/decision-validator.js";
 import { sha256File, type EvidenceContext } from "../evidence-refs.js";
-import type { SdlcToolDefinition, ToolResult } from "../runtime.js";
+import type { TeoToolDefinition, ToolResult } from "../runtime.js";
 import { GitInspector } from "./git-inspect.js";
 
 const DESCRIPTIONS: Record<ControlAction, string> = {
@@ -55,9 +55,9 @@ export function validatorResolvers(core: EngineCore): ValidatorResolvers {
   };
 }
 
-export function supervisorControlTools(core: EngineCore): SdlcToolDefinition[] {
+export function supervisorControlTools(core: EngineCore): TeoToolDefinition[] {
   return CONTROL_ACTIONS.map(
-    (action): SdlcToolDefinition => ({
+    (action): TeoToolDefinition => ({
       name: action,
       description: DESCRIPTIONS[action],
       parameters: controlSchemas[action],

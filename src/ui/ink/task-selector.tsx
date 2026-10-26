@@ -16,7 +16,7 @@ export interface TaskSelectorProps<T> {
 }
 
 export function TaskSelector<T>({
-  header = "SDLC Controller",
+  header = "Pi Supervisor TEO",
   projectRoot,
   policyInfo,
   title,

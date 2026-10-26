@@ -1,9 +1,9 @@
-[sdlc:prompt id=01JB2XKQ8M3N4P5R6S7T8V9W03 kind=evaluate cycle=1]
+[teo:prompt id=01JB2XKQ8M3N4P5R6S7T8V9W03 kind=evaluate cycle=1]
 
 # Цикл 1 · задача PAY-142: Оплата через СБП
 expectedStateVersion: 5
 Сейчас: <локальное время>
-Политика: sha256:72b062e5f7ef1c4259cf29870ef30f7d3c83ca3d49daf8ecafb0eb6251d678b0 (без изменений, см. read_policy)
+Политика: sha256:a9ae90cc8ac40dd8f4424bc92a57c6d50ecc2bd023763b116ce1f39585b8a947 (без изменений, см. read_policy)
 
 # Текущий этап: Изучение задачи (discover)
 Вход в этап: 2026-10-25T10:00:00.000Z; циклов на этапе: 1; перезапусков подряд: 0/3

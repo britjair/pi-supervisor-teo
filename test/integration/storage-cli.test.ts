@@ -31,7 +31,7 @@ async function withTasks(...keys: string[]): Promise<Sandbox> {
   return sb;
 }
 
-const taskDir = (sb: Sandbox, key: string) => path.join(sb.project, ".sdlc", "tasks", key);
+const taskDir = (sb: Sandbox, key: string) => path.join(sb.project, ".teo", "tasks", key);
 const readState = async (sb: Sandbox, key: string) =>
   JSON.parse(await readFile(path.join(taskDir(sb, key), "state.json"), "utf8")) as TaskState;
 const journal = async (sb: Sandbox, key: string) =>
@@ -58,7 +58,7 @@ describe("создание задач и меню", () => {
     expect(menu.stdout).toContain("Задачи в работе: 2");
     expect(menu.stdout).toMatch(/AUTH-77\s+Изучение задачи\s+○ ждёт запуска агента\s+Задача AUTH-77/);
     expect(menu.stdout).toMatch(/PAY-142\s+Изучение задачи/);
-    expect(menu.stdout).toContain("sdlc new KEY --title T --description-file F");
+    expect(menu.stdout).toContain("teo new KEY --title T --description-file F");
     expect((await runCli(sb, ["status"])).stdout).toContain("Задачи в работе: 2");
     expect((await runCli(sb, ["history"])).stdout).toContain("Задачи проекта: 2");
 
@@ -105,7 +105,7 @@ describe("создание задач и меню", () => {
     await expect(runInteractive(testContext(sb, { human }))).rejects.toThrow(/уже есть в проекте/);
   });
 
-  it("пустой проект: сразу форма, «Отмена» возвращает в меню, .sdlc не создан", async () => {
+  it("пустой проект: сразу форма, «Отмена» возвращает в меню, .teo не создан", async () => {
     const sb = await sandbox(POLICY);
     const human = new ScriptedHumanIO([
       { input: "T-1" },
@@ -115,7 +115,7 @@ describe("создание задач и меню", () => {
       { select: "Выход" },
     ]);
     expect(await runInteractive(testContext(sb, { human }))).toBe(0);
-    expect(existsSync(path.join(sb.project, ".sdlc"))).toBe(false);
+    expect(existsSync(path.join(sb.project, ".teo"))).toBe(false);
   });
 
   it("меню: отмена задачи, завершённые задачи в подменю", async () => {
@@ -169,9 +169,9 @@ describe("второй процесс", () => {
       for (const args of [newArgs("T-3"), ["cancel", "T-1", "--reason", "r"]]) {
         const r = await runCli(sb, args);
         expect(r.code, r.stderr).toBe(3);
-        expect(r.stderr).toContain("Проект занят другим процессом sdlc");
+        expect(r.stderr).toContain("Проект занят другим процессом teo");
         expect(r.stderr).toContain(`PID ${process.pid} на ${os.hostname()}, задача T-1, команда resume`);
-        expect(r.stderr).toContain("Посмотреть состояние: sdlc status T-1");
+        expect(r.stderr).toContain("Посмотреть состояние: teo status T-1");
       }
       expect(existsSync(taskDir(sb, "T-3"))).toBe(false);
       expect(await readState(sb, "T-1")).toEqual(before);
@@ -199,7 +199,7 @@ describe("второй процесс", () => {
     for (const r of results) expect([0, 3], r.stderr).toContain(r.code);
     const created = keys.filter((_, i) => results[i]?.code === 0);
     expect(created.length).toBeGreaterThan(0);
-    expect((await readdir(path.join(sb.project, ".sdlc", "tasks"))).sort()).toEqual(created.sort());
+    expect((await readdir(path.join(sb.project, ".teo", "tasks"))).sort()).toEqual(created.sort());
     const doctor = await runCli(sb, ["doctor"]);
     expect(doctor.code, doctor.stdout).toBe(1); // хранение исправно, Pi без авторизации
     expect(doctor.stdout).toContain("✓ Журналы событий целы, outbox доставлен");
@@ -231,7 +231,7 @@ describe("второй процесс", () => {
 describe("убийство процесса между записью state и append события", () => {
   it("создание: событие task.created доставляется из outbox следующей mutating-командой", async () => {
     const sb = await sandbox(POLICY);
-    const killed = await runCli(sb, newArgs("T-1"), { env: { SDLC_FAULT: "after-state-commit:kill" } });
+    const killed = await runCli(sb, newArgs("T-1"), { env: { TEO_FAULT: "after-state-commit:kill" } });
     expect(killed.signal).toBe("SIGKILL");
 
     const state = await readState(sb, "T-1");
@@ -250,7 +250,7 @@ describe("убийство процесса между записью state и a
 
     // Отмена тоже убита после записи state: сначала под lock-ом доставлен task.created,
     // затем записан state отмены, а его события остались в outbox
-    const killedCancel = await runCli(sb, ["cancel", "T-1", "--reason", "дубль"], { env: { SDLC_FAULT: "after-state-commit:kill" } });
+    const killedCancel = await runCli(sb, ["cancel", "T-1", "--reason", "дубль"], { env: { TEO_FAULT: "after-state-commit:kill" } });
     expect(killedCancel.signal).toBe("SIGKILL");
     expect((await journal(sb, "T-1")).map((e) => e.type)).toEqual(["task.created"]);
     expect((await readState(sb, "T-1")).status).toBe("cancelled");
@@ -272,29 +272,29 @@ describe("убийство процесса между записью state и a
 
   it("после append, до index: событие не дублируется, index перестраивается", async () => {
     const sb = await withTasks("T-1");
-    const killed = await runCli(sb, ["cancel", "T-1", "--reason", "r"], { env: { SDLC_FAULT: "after-event-append:kill" } });
+    const killed = await runCli(sb, ["cancel", "T-1", "--reason", "r"], { env: { TEO_FAULT: "after-event-append:kill" } });
     expect(killed.signal).toBe("SIGKILL");
-    expect((await runCli(sb, ["doctor"])).stdout).toContain("! .sdlc/index.json расходится с задачами");
+    expect((await runCli(sb, ["doctor"])).stdout).toContain("! .teo/index.json расходится с задачами");
     await runCli(sb, newArgs("T-2"));
     expect((await journal(sb, "T-1")).map((e) => e.type)).toEqual(["task.created", "human.responded", "task.cancelled"]);
-    expect((await runCli(sb, ["doctor"])).stdout).toContain("✓ .sdlc/index.json согласован с задачами");
+    expect((await runCli(sb, ["doctor"])).stdout).toContain("✓ .teo/index.json согласован с задачами");
   });
 });
 
 describe("хранилище", () => {
-  it(".sdlc игнорирует сам себя: git status проекта чистый", async () => {
+  it(".teo игнорирует сам себя: git status проекта чистый", async () => {
     const sb = await withTasks("T-1");
-    expect(await readFile(path.join(sb.project, ".sdlc", ".gitignore"), "utf8")).toBe("*\n");
+    expect(await readFile(path.join(sb.project, ".teo", ".gitignore"), "utf8")).toBe("*\n");
     const { runProcess } = await import("../helpers/tmp.js");
     expect((await runProcess("git", ["status", "--porcelain"], sb.project)).stdout).toBe("");
-    expect(await readdir(path.join(sb.project, ".sdlc", "policies"))).toHaveLength(1);
+    expect(await readdir(path.join(sb.project, ".teo", "policies"))).toHaveLength(1);
   });
 
   it("осиротевшие временные файлы умерших процессов видны в doctor и удаляются под lock-ом", async () => {
     const sb = await withTasks("T-1");
     const pid = await deadPid();
     const tmpFile = path.join(taskDir(sb, "T-1"), `.state.json.${pid}.abcdef.tmp`);
-    const tmpNew = path.join(sb.project, ".sdlc", "tasks", `.new-${pid}-abcd-T-9`);
+    const tmpNew = path.join(sb.project, ".teo", "tasks", `.new-${pid}-abcd-T-9`);
     await writeFile(tmpFile, "{}");
     const { mkdir } = await import("node:fs/promises");
     await mkdir(tmpNew);

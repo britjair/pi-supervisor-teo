@@ -1,6 +1,6 @@
 ---
 # Второй workflow с другими этапами и агентами: тот же dist/ без пересборки (критерий приёмки 3).
-schema: sdlc/v1
+schema: teo/v1
 
 workflow:
   initialStage: sketch

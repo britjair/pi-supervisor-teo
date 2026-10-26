@@ -1,4 +1,4 @@
-# Окружение сборки и тестов sdlc-cli. На хост ничего не ставится (см. README, раздел «Разработка»).
+# Окружение сборки и тестов pi-supervisor-teo. На хост ничего не ставится (см. README, раздел «Разработка»).
 # Версия Node совпадает с Node из Homebrew на хосте, на котором работает pi.
 FROM node:26.12.1-bookworm-slim
 
@@ -6,8 +6,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && git config --system safe.directory '*' \
- && git config --system user.name "sdlc-dev" \
- && git config --system user.email "sdlc-dev@localhost" \
+ && git config --system user.name "teo-dev" \
+ && git config --system user.email "teo-dev@localhost" \
  && git config --system init.defaultBranch main
 
 # node_modules и кэш npm живут в именованных volume: контейнер работает с UID хоста,

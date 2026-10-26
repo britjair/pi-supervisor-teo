@@ -1,6 +1,6 @@
 ---
 # Все поля схемы, x-* метаданные, самопереход, recheck: {}, якоря YAML.
-schema: sdlc/v1
+schema: teo/v1
 x-owner: команда платформы
 
 workflow:

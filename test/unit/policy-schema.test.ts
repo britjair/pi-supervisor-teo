@@ -21,7 +21,7 @@ function parseError(s: string): PolicyError {
 }
 
 const MINIMAL = `---
-schema: sdlc/v1
+schema: teo/v1
 workflow:
   initialStage: a
   stages:
@@ -120,7 +120,7 @@ describe("defaults", () => {
 describe("x-* ключи", () => {
   it("игнорируются на любом уровне", () => {
     const p = parse(
-      MINIMAL.replace("schema: sdlc/v1\n", "schema: sdlc/v1\nx-team: core\n")
+      MINIMAL.replace("schema: teo/v1\n", "schema: teo/v1\nx-team: core\n")
         .replace("    a:\n", "    x-future:\n      anything: 1\n    a:\n")
         .replace("          when: готово\n", "          when: готово\n          x-note: [1, 2]\n"),
     );
@@ -193,9 +193,9 @@ describe("ошибки схемы", () => {
   });
 
   it("неподдерживаемая версия схемы проверяется до остальной схемы", () => {
-    const err = parseError(MINIMAL.replace("schema: sdlc/v1", "schema: sdlc/v2\nunknown: 1"));
+    const err = parseError(MINIMAL.replace("schema: teo/v1", "schema: teo/v2\nunknown: 1"));
     expect(err.code).toBe("POLICY_UNSUPPORTED_SCHEMA");
-    expect(err.issues[0]).toMatchObject({ code: "SCHEMA_UNSUPPORTED", line: 2, params: { value: "sdlc/v2" } });
+    expect(err.issues[0]).toMatchObject({ code: "SCHEMA_UNSUPPORTED", line: 2, params: { value: "teo/v2" } });
   });
 
   it("собирает все ошибки схемы за один проход", () => {

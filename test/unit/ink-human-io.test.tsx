@@ -90,7 +90,7 @@ describe("InkHumanIO", () => {
     // Последний кадр с содержимым: после него Ink пишет только управляющие последовательности
     const last = stdout.frames.map(plain).filter((f) => f.trim() !== "").at(-1) ?? "";
     expect(last).toContain("PAY-142 · Ревью · agent: reviewer · attempt 2");
-    expect(last).toContain("SDLC: Ревью");
+    expect(last).toContain("TEO: Ревью");
     expect(last).toContain("Ctrl+C — остановить");
     expect(last).toContain("недописанная");
   });

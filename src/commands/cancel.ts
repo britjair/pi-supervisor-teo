@@ -1,4 +1,4 @@
-// sdlc cancel <KEY> [--reason R] (05-cli-ui.md §2). Отмена задачи человеком.
+// teo cancel <KEY> [--reason R] (05-cli-ui.md §2). Отмена задачи человеком.
 // Причина пишется в журнал как human.responded: это след явного решения пользователя.
 
 import { startCommand, type AppContext } from "../app.js";

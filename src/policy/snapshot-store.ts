@@ -1,5 +1,5 @@
-// Снимки Policy в .sdlc/policies/<sha256-hex>.md, 01-policy.md §4.2.
-// Каталог .sdlc создаёт вызывающая mutating-операция: здесь создаётся только policies/.
+// Снимки Policy в .teo/policies/<sha256-hex>.md, 01-policy.md §4.2.
+// Каталог .teo создаёт вызывающая mutating-операция: здесь создаётся только policies/.
 
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";

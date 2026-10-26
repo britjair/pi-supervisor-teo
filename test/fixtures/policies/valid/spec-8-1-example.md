@@ -1,6 +1,6 @@
 ---
 # Пример минимальной политики из раздела 8.1 SDLC_CLI_SPEC.md без изменений.
-schema: sdlc/v1
+schema: teo/v1
 
 workflow:
   initialStage: requirements

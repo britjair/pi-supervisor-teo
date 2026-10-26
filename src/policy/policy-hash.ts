@@ -12,7 +12,7 @@ export function isPolicyHash(value: string): value is PolicyHash {
   return HASH_RE.test(value);
 }
 
-/** sha256:abcd… → abcd… (имя снимка в .sdlc/policies/). */
+/** sha256:abcd… → abcd… (имя снимка в .teo/policies/). */
 export function policyHashHex(hash: PolicyHash): string {
   const m = HASH_RE.exec(hash);
   if (!m?.[1]) throw new Error(`Некорректный hash Policy: ${hash}`);

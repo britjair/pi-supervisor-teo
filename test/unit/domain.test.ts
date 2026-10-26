@@ -18,7 +18,7 @@ function base(over: Partial<TaskState> = {}): TaskState {
     updatedAt: NOW.toISOString(),
     version: 1,
     policyHash: `sha256:${"0".repeat(64)}`,
-    policySchema: "sdlc/v1",
+    policySchema: "teo/v1",
     stage: "s",
     stageEnteredAt: NOW.toISOString(),
     stageEntryEventId: "E",
@@ -131,7 +131,7 @@ describe("next-action", () => {
     );
     const running = base({ phase: "agent_running", nextAgentInput: null, currentRun: run });
     expect(text(running, true)).toBe("agent worker работает");
-    expect(text(running)).toBe("agent worker прерван — будет восстановлен при sdlc resume T-1");
+    expect(text(running)).toBe("agent worker прерван — будет восстановлен при teo resume T-1");
     const sp = (kind: NonNullable<TaskState["supervisor"]["trigger"]>["kind"]) =>
       text(base({ phase: "supervisor_pending", nextAgentInput: null, currentRun: run, supervisor: { ...base().supervisor, trigger: { kind, ref: null } } }));
     expect(sp("agent_settled")).toBe("supervisor проверит результат worker");
@@ -152,14 +152,14 @@ describe("next-action", () => {
     );
     const waiting = base({ phase: "waiting", wait, currentRun: run, nextAgentInput: null });
     expect(text(waiting, true)).toBe("перепроверка в 10:30 (через 30 мин): ответ ревьюера");
-    expect(text(waiting)).toContain("sdlc resume T-1 (--now — сразу)");
+    expect(text(waiting)).toContain("teo resume T-1 (--now — сразу)");
     expect(text(base({ phase: "waiting", wait: { ...wait, dueAt: "2026-10-25T09:00:00.000Z" }, currentRun: run, nextAgentInput: null }))).toBe(
-      "перепроверка просрочена — начнётся при sdlc resume T-1",
+      "перепроверка просрочена — начнётся при teo resume T-1",
     );
     expect(text(haltedState(base(), "terminal", null))).toBe("завершена");
     expect(text(haltedState(base(), "cancelled", null))).toBe("отменена");
     expect(text(haltedState(base(), "blocked", { code: "X", message: "нет доступа к CI", at: "" }))).toBe(
-      "заблокирована: нет доступа к CI — sdlc resume T-1",
+      "заблокирована: нет доступа к CI — teo resume T-1",
     );
   });
 

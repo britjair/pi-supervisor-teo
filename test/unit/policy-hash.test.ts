@@ -6,7 +6,7 @@ const enc = (s: string) => new TextEncoder().encode(s);
 
 describe("policy-hash", () => {
   it("sha256 от байтов файла", () => {
-    const bytes = enc("---\nschema: sdlc/v1\n---\nbody\n");
+    const bytes = enc("---\nschema: teo/v1\n---\nbody\n");
     expect(hashPolicyBytes(bytes)).toBe(`sha256:${createHash("sha256").update(bytes).digest("hex")}`);
   });
 

@@ -1,12 +1,12 @@
-// Пути внутри <project-root>/.sdlc, 02-storage.md §1. Все пути .sdlc вычисляются здесь.
+// Пути внутри <project-root>/.teo, 02-storage.md §1. Все пути .teo вычисляются здесь.
 
 import path from "node:path";
 
-export const SDLC_DIR_NAME = ".sdlc";
+export const TEO_DIR_NAME = ".teo";
 
 export type ProjectLayout = {
   projectRoot: string;
-  sdlcDir: string;
+  teoDir: string;
   gitignore: string;
   index: string;
   lock: string;
@@ -16,16 +16,16 @@ export type ProjectLayout = {
 };
 
 export function projectLayout(projectRoot: string): ProjectLayout {
-  const sdlcDir = path.join(projectRoot, SDLC_DIR_NAME);
+  const teoDir = path.join(projectRoot, TEO_DIR_NAME);
   return {
     projectRoot,
-    sdlcDir,
-    gitignore: path.join(sdlcDir, ".gitignore"),
-    index: path.join(sdlcDir, "index.json"),
-    lock: path.join(sdlcDir, "project.lock.json"),
-    debugLog: path.join(sdlcDir, "debug.log"),
-    policiesDir: path.join(sdlcDir, "policies"),
-    tasksDir: path.join(sdlcDir, "tasks"),
+    teoDir,
+    gitignore: path.join(teoDir, ".gitignore"),
+    index: path.join(teoDir, "index.json"),
+    lock: path.join(teoDir, "project.lock.json"),
+    debugLog: path.join(teoDir, "debug.log"),
+    policiesDir: path.join(teoDir, "policies"),
+    tasksDir: path.join(teoDir, "tasks"),
   };
 }
 

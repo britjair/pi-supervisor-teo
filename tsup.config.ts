@@ -13,5 +13,5 @@ export default defineConfig({
   sourcemap: true,
   splitting: false,
   banner: { js: "#!/usr/bin/env node" },
-  define: { __SDLC_VERSION__: JSON.stringify(pkg.version) },
+  define: { __TEO_VERSION__: JSON.stringify(pkg.version) },
 });

@@ -31,8 +31,8 @@ export type ToolResult = {
 
 export type ToolCallContext = { toolCallId: string; signal: AbortSignal };
 
-/** Свой tool sdlc, независимый от типов Pi. Параметры — zod, Pi получает JSON Schema. */
-export type SdlcToolDefinition<S extends z.ZodType = z.ZodType> = {
+/** Свой tool teo, независимый от типов Pi. Параметры — zod, Pi получает JSON Schema. */
+export type TeoToolDefinition<S extends z.ZodType = z.ZodType> = {
   name: string;
   description: string;
   parameters: S;
@@ -43,8 +43,8 @@ export type GuardConfig = {
   role: "agent" | "supervisor";
   projectRoot: string;
   taskDir: string;
-  /** Для агента: внутри .sdlc писать можно только сюда */
-  writableInsideSdlc: string[];
+  /** Для агента: внутри .teo писать можно только сюда */
+  writableInsideTeo: string[];
   /** Для supervisor: читать можно только внутри этих каталогов */
   readableRoots: string[];
   /** Агент уже отчитался в этом prompt-цикле */
@@ -60,7 +60,7 @@ export type SessionSpec = {
   systemPromptAppend: string;
   /** Итоговый allowlist встроенных tools Pi */
   builtinTools: string[];
-  customTools: SdlcToolDefinition[];
+  customTools: TeoToolDefinition[];
   piResources: { contextFiles: boolean; extensions: boolean; skills: boolean };
   guard: GuardConfig;
 };
@@ -77,7 +77,7 @@ export type SessionFileInfo = {
   exists: boolean;
   valid: boolean;
   parseError: string | null;
-  /** Из маркеров [sdlc:prompt id=…] */
+  /** Из маркеров [teo:prompt id=…] */
   promptIds: string[];
   lastEntry:
     | { kind: "assistant"; stopReason: string; text: string | null; danglingToolCalls: ToolCallSummary[] }
@@ -133,12 +133,12 @@ export const ZERO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, costUsd: nul
 
 /** Маркер в начале каждого prompt (03-engine.md §5.2). */
 export function promptMarker(fields: Record<string, string | number>): string {
-  return `[sdlc:prompt ${Object.entries(fields)
+  return `[teo:prompt ${Object.entries(fields)
     .map(([k, v]) => `${k}=${v}`)
     .join(" ")}]`;
 }
 
-const MARKER_RE = /\[sdlc:prompt id=([0-9A-HJKMNP-TV-Z]{26})\b/g;
+const MARKER_RE = /\[teo:prompt id=([0-9A-HJKMNP-TV-Z]{26})\b/g;
 
 export function promptIdsIn(text: string): string[] {
   return [...text.matchAll(MARKER_RE)].map((m) => m[1] ?? "");

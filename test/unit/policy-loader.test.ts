@@ -72,7 +72,7 @@ describe("preflight файла", () => {
 
   it("не UTF-8 → POLICY_ENCODING с номером строки", async () => {
     const dir = await tmpDir();
-    const bytes = Buffer.concat([Buffer.from("---\nschema: sdlc/v1\ntitle: "), Buffer.from([0xcf, 0xeb, 0xe0, 0xed]), Buffer.from("\n---\n")]);
+    const bytes = Buffer.concat([Buffer.from("---\nschema: teo/v1\ntitle: "), Buffer.from([0xcf, 0xeb, 0xe0, 0xed]), Buffer.from("\n---\n")]);
     await writeFile(path.join(dir, "SDLC.md"), bytes);
     expect(await codeOf(path.join(dir, "SDLC.md"))).toEqual({ code: "POLICY_ENCODING", issues: ["INVALID_UTF8"], lines: [3] });
   });
@@ -98,7 +98,7 @@ describe("загрузка", () => {
     await writeFile(path.join(dir, "SDLC.md"), VALID);
     const p = await loadPolicyFile(path.join(dir, "SDLC.md"));
     expect(p.body.trim()).toBe("# Правила\n\nОтчёт агента — не доказательство. Коммит подтверждается только инструментами git.");
-    expect(p.schema).toBe("sdlc/v1");
+    expect(p.schema).toBe("teo/v1");
     expect(p.path).toBe(path.join(dir, "SDLC.md"));
   });
 
@@ -116,7 +116,7 @@ describe("загрузка", () => {
 
   it("YAML-бомба из алиасов отклоняется", async () => {
     const dir = await tmpDir();
-    const lines = ["---", "schema: sdlc/v1", "a0: &a0 [x, x, x, x, x, x, x, x, x, x]"];
+    const lines = ["---", "schema: teo/v1", "a0: &a0 [x, x, x, x, x, x, x, x, x, x]"];
     for (let i = 1; i < 12; i++) {
       lines.push(`a${i}: &a${i} [${Array.from({ length: 10 }, () => `*a${i - 1}`).join(", ")}]`);
     }

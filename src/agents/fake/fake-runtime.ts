@@ -61,7 +61,7 @@ export const turn = {
   tool: (name: string, args: Args = {}): FakeStep => ({ kind: "tool", name, args }),
   tools: (...calls: Array<[string, Args]>): FakeStep => ({ kind: "tools", calls: calls.map(([name, args]) => ({ name, args })) }),
   end: (text: string | null = null): FakeStep => ({ kind: "end", text }),
-  crash: (message = "процесс sdlc убит"): FakeStep => ({ kind: "crash", message }),
+  crash: (message = "процесс teo убит"): FakeStep => ({ kind: "crash", message }),
   crashInTool: (name: string, args: Args = {}): FakeStep => ({ kind: "crashInTool", name, args }),
   hang: (): FakeStep => ({ kind: "hang" }),
   error: (message = "provider overloaded"): FakeStep => ({ kind: "error", message }),
@@ -411,7 +411,7 @@ class FakeSession implements AgentSessionHandle {
   }
 }
 
-/** Декларативный сценарий из JSON (переменная SDLC_FAKE_RUNTIME): только шаги без функций. */
+/** Декларативный сценарий из JSON (переменная TEO_FAKE_RUNTIME): только шаги без функций. */
 export async function loadFakeScenario(file: string): Promise<FakeAgentRuntime> {
   const data = JSON.parse(await readFile(file, "utf8")) as {
     sessions: Record<string, Array<Exclude<FakeStep, { kind: "effect" }>>>;

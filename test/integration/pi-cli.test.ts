@@ -8,7 +8,7 @@ it("new запускает движок Pi; недоступная модель 
   const sb = await sandbox(await readFile(path.join(validDir, "discover-execute-done.md")));
   const r = await runCli(sb, ["new", "T-1", "--title", "тест", "--description", "данные", "--plain"]);
   expect(r.code).toBe(5);
-  const state = JSON.parse(await readFile(path.join(sb.project, ".sdlc", "tasks", "T-1", "state.json"), "utf8"));
+  const state = JSON.parse(await readFile(path.join(sb.project, ".teo", "tasks", "T-1", "state.json"), "utf8"));
   expect(state.status).toBe("blocked");
   expect(state.statusReason.code).toBe("MODEL_UNAVAILABLE");
   const resumed = await runCli(sb, ["resume", "T-1", "--plain"]);

@@ -38,7 +38,7 @@ describe("создание задачи", () => {
 
   it("сбой создания не оставляет ни временного каталога, ни наполовину созданной задачи", async () => {
     const { store } = await testStore();
-    await store.ensureSdlcDir();
+    await store.ensureTeoDir();
     const { mkdir } = await import("node:fs/promises");
     // Каталог с тем же ключом появился в обход lock-а: rename не должен его заменить
     await mkdir(store.tasks.task("T-1").dir, { recursive: true });
@@ -224,11 +224,11 @@ describe("загрузка", () => {
     const copies = (await readdir(path.dirname(file))).filter((f) => f.startsWith("state.json.tampered-"));
     expect(copies).toHaveLength(1);
     expect(JSON.parse(await readFile(path.join(path.dirname(file), copies[0] ?? ""), "utf8"))).toMatchObject({ title: "подменено" });
-    // Рядом — последний state, записанный sdlc: из него recover восстанавливает фазу
+    // Рядом — последний state, записанный teo: из него recover восстанавливает фазу
     const [found] = await store.tasks.tamperedCopies("T-1");
     expect(found?.tampered).toBe(path.join(path.dirname(file), copies[0] ?? ""));
     expect(JSON.parse(await readFile(found?.before ?? "", "utf8"))).toEqual(s);
-    expect(loaded.statusReason?.message).toContain("sdlc recover T-1");
+    expect(loaded.statusReason?.message).toContain("teo recover T-1");
     // Повторная загрузка — файл наш, подмены нет
     expect((await store.tasks.load("T-1")).version).toBe(2);
   });
@@ -284,7 +284,7 @@ function baseState(createdId: string) {
     workspacePath: null,
     createdAt: "2026-10-25T10:00:00.000Z",
     policyHash: `sha256:${"0".repeat(64)}` as const,
-    policySchema: "sdlc/v1" as const,
+    policySchema: "teo/v1" as const,
     stage: "discover",
     stageEnteredAt: "2026-10-25T10:00:00.000Z",
     stageEntryEventId: createdId,

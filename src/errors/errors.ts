@@ -14,12 +14,12 @@ export const ExitCode = {
 } as const;
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
 
-export abstract class SdlcError extends Error {
+export abstract class TeoError extends Error {
   abstract readonly exitCode: ExitCode;
 }
 
 /** Policy не прошла preflight (01-policy.md §1.2). */
-export class PolicyError extends SdlcError {
+export class PolicyError extends TeoError {
   readonly exitCode = ExitCode.config;
 
   /** Предупреждения графовой проверки: показываются вместе с ошибками POLICY_GRAPH. */
@@ -37,7 +37,7 @@ export class PolicyError extends SdlcError {
   }
 }
 
-export class ModelResolutionError extends SdlcError {
+export class ModelResolutionError extends TeoError {
   readonly exitCode = ExitCode.config;
   override name = "ModelResolutionError";
 }
@@ -51,7 +51,7 @@ export type LockHolder = {
   heartbeatAt: string;
 } | null;
 
-export class LockConflictError extends SdlcError {
+export class LockConflictError extends TeoError {
   readonly exitCode = ExitCode.lock;
   override name = "LockConflictError";
   constructor(
@@ -64,17 +64,17 @@ export class LockConflictError extends SdlcError {
 }
 
 /** Lock проекта перехвачен другим процессом во время работы (02-storage.md §10.3). */
-export class LockLostError extends SdlcError {
+export class LockLostError extends TeoError {
   readonly exitCode = ExitCode.lock;
   override name = "LockLostError";
 }
 
-export class TaskNotFoundError extends SdlcError {
+export class TaskNotFoundError extends TeoError {
   readonly exitCode = ExitCode.task;
   override name = "TaskNotFoundError";
 }
 
-export class TaskCorruptedError extends SdlcError {
+export class TaskCorruptedError extends TeoError {
   readonly exitCode = ExitCode.task;
   override name = "TaskCorruptedError";
   constructor(
@@ -88,18 +88,18 @@ export class TaskCorruptedError extends SdlcError {
   }
 }
 
-export class StateVersionConflictError extends SdlcError {
+export class StateVersionConflictError extends TeoError {
   readonly exitCode = ExitCode.runtime;
   override name = "StateVersionConflictError";
 }
 
-export class UserAbortError extends SdlcError {
+export class UserAbortError extends TeoError {
   readonly exitCode = ExitCode.sigint;
   override name = "UserAbortError";
 }
 
 /** Ошибка, текст которой уже подготовлен для пользователя. */
-export class UsageError extends SdlcError {
+export class UsageError extends TeoError {
   readonly exitCode = ExitCode.runtime;
   override name = "UsageError";
 }

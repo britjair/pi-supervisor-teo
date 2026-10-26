@@ -1,12 +1,12 @@
 // Zod-контракт движка → TypeBox-контракт Pi. Проверка Zod выполняется повторно
-// после TypeBox: defaults, refinements и сообщения ошибок принадлежат sdlc.
+// после TypeBox: defaults, refinements и сообщения ошибок принадлежат teo.
 
 import { z } from "zod";
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { SdlcToolDefinition } from "../runtime.js";
+import type { TeoToolDefinition } from "../runtime.js";
 
-export function toPiTool(tool: SdlcToolDefinition): ToolDefinition {
+export function toPiTool(tool: TeoToolDefinition): ToolDefinition {
   const schema = Type.Unsafe(z.toJSONSchema(tool.parameters, { target: "draft-7" }));
   return defineTool({
     name: tool.name,

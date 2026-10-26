@@ -1,9 +1,9 @@
-// sdlc без аргументов: меню (05-cli-ui.md §3). HumanIO выбирает Ink или plain.
+// teo без аргументов: меню (05-cli-ui.md §3). HumanIO выбирает Ink или plain.
 // Меню только читает; lock берётся, когда выбрано mutating-действие.
 
 import { startCommand, type AppContext } from "../app.js";
 import { isFinished } from "../domain/task-state.js";
-import { ExitCode, SdlcError, UserAbortError } from "../errors/errors.js";
+import { ExitCode, TeoError, UserAbortError } from "../errors/errors.js";
 import type { ProjectStore } from "../state/project-store.js";
 import type { Choice, HumanIO } from "../ui/human-io.js";
 import { msg, nextActionText } from "../ui/messages.js";
@@ -39,7 +39,7 @@ async function guarded(ctx: AppContext, human: HumanIO, action: () => Promise<vo
   try {
     await action();
   } catch (err) {
-    if (err instanceof UserAbortError || !(err instanceof SdlcError)) throw err;
+    if (err instanceof UserAbortError || !(err instanceof TeoError)) throw err;
     human.print("\n" + renderError(err, { homeDir: ctx.homeDir, style: ctx.style, now: ctx.clock.now(), verbose: ctx.verbose }));
   }
 }

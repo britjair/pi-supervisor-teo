@@ -1,11 +1,11 @@
 {
-  "name": "sdlc-cli",
+  "name": "pi-supervisor-teo",
   "version": "0.1.0",
   "private": true,
-  "description": "Локальный CLI-контроллер SDLC-процесса из ~/.pi/SDLC.md",
+  "description": "Supervisor процессов для Pi: ведёт задачи по процессу из ~/.pi/SDLC.md",
   "type": "module",
   "bin": {
-    "sdlc": "dist/cli.js"
+    "teo": "dist/cli.js"
   },
   "files": [
     "dist"
@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:e2e": "SDLC_E2E=1 vitest run test/e2e",
+    "test:e2e": "TEO_E2E=1 vitest run test/e2e",
     "check": "npm run typecheck && npm run lint && npm run build && npm test"
   },
   "dependencies": {

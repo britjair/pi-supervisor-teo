@@ -12,7 +12,7 @@ const usage = { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 8
 async function session(file: string) {
   await mkdir(path.dirname(file), { recursive: true });
   const manager = SessionManager.open(file, path.dirname(file), path.dirname(file));
-  manager.appendMessage({ role: "user", content: `[sdlc:prompt id=${id} kind=initial run=${id}]\nТест`, timestamp: 1 });
+  manager.appendMessage({ role: "user", content: `[teo:prompt id=${id} kind=initial run=${id}]\nТест`, timestamp: 1 });
   return manager;
 }
 

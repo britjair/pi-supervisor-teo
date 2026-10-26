@@ -143,7 +143,7 @@ describe("отложенная перепроверка", () => {
     expect((await h.state()).wait).toEqual(waiting.wait);
     expect(await reasons()).toEqual([]);
 
-    // Срок прошёл, пока sdlc не работал: перепроверка сразу, без ожидания
+    // Срок прошёл, пока teo не работал: перепроверка сразу, без ожидания
     h.clock.advance(20 * 60_000);
     const t1 = h.clock.now().getTime();
     expect(await h.run("T-1", { noWait: true })).toMatchObject({ kind: "waiting_recheck" });

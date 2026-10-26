@@ -14,20 +14,20 @@
 
 | Команда | Lock | Назначение |
 |---|---|---|
-| `sdlc` | при выборе действия | Интерактивное меню (основной интерфейс) |
-| `sdlc new [KEY] [--title T] [--description-file F \| --description -]` | да | Создать задачу и сразу запустить workflow. Недостающие поля спрашиваются интерактивно; без TTY все поля обязательны |
-| `sdlc resume <KEY> [--now] [--no-wait]` | да | Продолжить задачу с сохранённой фазы. Для задачи в ожидании: `--now` — перепроверить сразу, `--no-wait` — выйти с exit `6`, если срок не наступил ([03-engine.md §12](03-engine.md#12-отложенная-перепроверка)) |
-| `sdlc status [KEY] [--json]` | нет | Состояние одной задачи, без KEY — сводка по всем |
-| `sdlc history [KEY] [--all] [--json] [--limit N]` | нет | Без KEY — все задачи проекта, включая завершённые; с KEY — лента событий задачи |
-| `sdlc cancel <KEY> [--reason R]` | да | Отмена задачи пользователем, с подтверждением |
-| `sdlc recover <KEY> [--set-stage S] [--accept-policy]` | да | Ручное восстановление: выбор этапа, принятие новой Policy в режиме `pinned`, разбор неоднозначных состояний |
-| `sdlc doctor [--fix]` | для `--fix` | Диагностика; `--fix` предлагает исправления по одному с подтверждением |
+| `teo` | при выборе действия | Интерактивное меню (основной интерфейс) |
+| `teo new [KEY] [--title T] [--description-file F \| --description -]` | да | Создать задачу и сразу запустить workflow. Недостающие поля спрашиваются интерактивно; без TTY все поля обязательны |
+| `teo resume <KEY> [--now] [--no-wait]` | да | Продолжить задачу с сохранённой фазы. Для задачи в ожидании: `--now` — перепроверить сразу, `--no-wait` — выйти с exit `6`, если срок не наступил ([03-engine.md §12](03-engine.md#12-отложенная-перепроверка)) |
+| `teo status [KEY] [--json]` | нет | Состояние одной задачи, без KEY — сводка по всем |
+| `teo history [KEY] [--all] [--json] [--limit N]` | нет | Без KEY — все задачи проекта, включая завершённые; с KEY — лента событий задачи |
+| `teo cancel <KEY> [--reason R]` | да | Отмена задачи пользователем, с подтверждением |
+| `teo recover <KEY> [--set-stage S] [--accept-policy]` | да | Ручное восстановление: выбор этапа, принятие новой Policy в режиме `pinned`, разбор неоднозначных состояний |
+| `teo doctor [--fix]` | для `--fix` | Диагностика; `--fix` предлагает исправления по одному с подтверждением |
 
 `history` в исходной спецификации был без аргументов и без описания; здесь он покрывает и список завершённых задач, и журнал одной задачи. Команды `cancel` и `recover` добавлены: исходная спецификация ссылалась на «команду восстановления» и «явное пользовательское решение» об отмене, но не определяла их.
 
-<a id="sdlc-recover"></a>
+<a id="teo-recover"></a>
 
-### 2.1. `sdlc recover`
+### 2.1. `teo recover`
 
 Интерактивно показывает state, последние события и предлагает только допустимые для ситуации действия:
 
@@ -43,9 +43,9 @@
 ## 3. Главное меню
 
 ```text
-$ sdlc
+$ teo
 
-SDLC Controller
+Pi Supervisor TEO
 Project: /Users/user/Projects/cms
 Policy:  ~/.pi/SDLC.md · sha256:9b7e…41 · 6 stages
 
@@ -129,7 +129,7 @@ Project root: /Users/user/Projects/cms   (git: main, чисто)
   ✗ отсутствует обработка timeout
   ▸ report_result
 ⠋ supervisor проверяет результат reviewer · 00:00:18
-└ SDLC: Ревью · supervisor · cycle 7 · in 41k out 3k · Ctrl+C — остановить ┘
+└ TEO: Ревью · supervisor · cycle 7 · in 41k out 3k · Ctrl+C — остановить ┘
 ```
 
 - Шапка и подвал строятся из state и `RuntimeEvent`, а не из текста модели (раздел 20.1 исходной спецификации).
@@ -201,7 +201,7 @@ Project root: /Users/user/Projects/cms   (git: main, чисто)
 |---|---|
 | `Enter` | Перепроверить сейчас: `wait.finished { reason: skipped_by_human }` |
 | `m` | Сообщение supervisor-у (многострочный ввод, как в human prompt). Ожидание завершается, supervisor получает trigger `human_responded` |
-| `q` | Выйти. State не меняется, lock освобождается, exit `6`. `sdlc resume` продолжит отсчёт |
+| `q` | Выйти. State не меняется, lock освобождается, exit `6`. `teo resume` продолжит отсчёт |
 | `Ctrl+C` | Остановка без подтверждения: агент не работает, прерывать нечего. `status = interrupted`, exit `130` |
 
 Когда срок наступает, экран сам переходит к перепроверке. Терминальный bell не подаётся: человек не нужен.
@@ -221,12 +221,12 @@ Project root: /Users/user/Projects/cms   (git: main, чисто)
 ```
 
 - Текст модели печатается построчно с тем же префиксом (с `--quiet` — только события).
-- Вопрос человеку: процесс печатает вопрос и завершается с exit `5`. Вопрос ждёт интерактивного `sdlc resume`. `ask_user` агента в этом режиме возвращает агенту ошибку ([04-agents.md §4.4](04-agents.md#44-ask_user)).
+- Вопрос человеку: процесс печатает вопрос и завершается с exit `5`. Вопрос ждёт интерактивного `teo resume`. `ask_user` агента в этом режиме возвращает агенту ошибку ([04-agents.md §4.4](04-agents.md#44-ask_user)).
 - Режим `confirm` при изменении Policy → exit `5`.
 - Ожидание перепроверки: строка `waiting until 2026-10-24T12:40:00Z (30 min, 4/40): <waitingFor>`, затем раз в 10 минут `still waiting, 20 min left`. С `--no-wait` процесс не ждёт и выходит с exit `6`.
-- Меню без аргументов недоступно: `sdlc` без TTY печатает список задач (как `status`) и подсказку с командами.
+- Меню без аргументов недоступно: `teo` без TTY печатает список задач (как `status`) и подсказку с командами.
 
-## 6. `sdlc status`
+## 6. `teo status`
 
 ```text
 PAY-142 · Добавить оплату через СБП
@@ -253,12 +253,12 @@ Usage:          in 412k · out 38k · $3.87
 | `supervisor_running` | «supervisor принимает решение» |
 | `decision_pending` | «применить решение `<action>`» |
 | `human_pending` | «ждёт ответа пользователя: `<question, 80 символов>`» |
-| `waiting` | «перепроверка в 15:40 (через 23 мин): `<waitingFor, 80 символов>`», а без живого процесса ещё и «`sdlc resume <KEY>` (`--now` — сразу)». Если срок прошёл: «перепроверка просрочена — начнётся при `sdlc resume <KEY>`» |
-| `halted` | «завершена» / «заблокирована: `<reason>` — `sdlc resume <KEY>`» / «отменена» |
+| `waiting` | «перепроверка в 15:40 (через 23 мин): `<waitingFor, 80 символов>`», а без живого процесса ещё и «`teo resume <KEY>` (`--now` — сразу)». Если срок прошёл: «перепроверка просрочена — начнётся при `teo resume <KEY>`» |
+| `halted` | «завершена» / «заблокирована: `<reason>` — `teo resume <KEY>`» / «отменена» |
 
 `--json` выводит объект `{ state, runtime, lock, policy: { currentHash, matches }, nextAction }`.
 
-## 7. `sdlc doctor`
+## 7. `teo doctor`
 
 | Проверка | Уровень при провале |
 |---|---|
@@ -268,13 +268,13 @@ Usage:          in 412k · out 38k · $3.87
 | Все `modelRef` из Policy разрешаются, у провайдеров есть авторизация | error |
 | Создаётся временная in-memory сессия (без вызова модели) | error |
 | Project root определяется; права чтения и записи | error |
-| `.sdlc/index.json` согласован с state-файлами | warning (`--fix`: перестроить) |
+| `.teo/index.json` согласован с state-файлами | warning (`--fix`: перестроить) |
 | Каждый `state.json` парсится и проходит инварианты | error по задаче |
 | `events.jsonl`: целостность, outbox доставлен | warning (`--fix`: дописать outbox, обрезать хвост) |
 | Ссылки state на существующие файлы сессий и runs | warning |
 | Протухший lock / lock с живым PID / lock другого хоста | warning (`--fix`: снять протухший; чужой хост — только с явным подтверждением) |
 | Осиротевшие `*.tmp` | info (`--fix`: удалить) |
-| `.sdlc/.gitignore` на месте | info (`--fix`: создать) |
+| `.teo/.gitignore` на месте | info (`--fix`: создать) |
 
 Вывод: по строке на проверку `✓ / ! / ✗`, затем сводка. Без `--fix` ничего не меняется.
 
@@ -292,7 +292,7 @@ Usage:          in 412k · out 38k · $3.87
 | `130` | Остановка через `Ctrl+C` |
 | `143` | Остановка через `SIGTERM` / `SIGHUP` |
 
-Коды `5` и `6` нужны автоматизации: `sdlc resume X` в скрипте должен отличать «готово», «нужен человек» и «ещё рано». Например, `sdlc resume X --no-wait --plain` из cron раз в 10 минут ведёт задачу без открытого терминала.
+Коды `5` и `6` нужны автоматизации: `teo resume X` в скрипте должен отличать «готово», «нужен человек» и «ещё рано». Например, `teo resume X --no-wait --plain` из cron раз в 10 минут ведёт задачу без открытого терминала.
 
 ## 9. Формат сообщений об ошибках
 
@@ -304,7 +304,7 @@ Task PAY-142 is blocked
 What happened: supervisor ended 2 cycles without a control decision (SUPERVISOR_NO_DECISION).
 Affected:      stage "Ревью", supervisor session sessions/supervisor.jsonl
 Safe to continue: yes — no state was lost.
-Next step:     sdlc resume PAY-142
+Next step:     teo resume PAY-142
 ```
 
-Классы ошибок — в `src/errors/errors.ts`: `PolicyError` (2), `LockConflictError` (3), `TaskNotFoundError`, `TaskCorruptedError` (4), `StateVersionConflictError` (1), `ModelResolutionError` (2), `UserAbortError` (130). Неизвестные ошибки печатаются с stack trace только при `--verbose`; иначе — с путём к debug-логу `.sdlc/debug.log`.
+Классы ошибок — в `src/errors/errors.ts`: `PolicyError` (2), `LockConflictError` (3), `TaskNotFoundError`, `TaskCorruptedError` (4), `StateVersionConflictError` (1), `ModelResolutionError` (2), `UserAbortError` (130). Неизвестные ошибки печатаются с stack trace только при `--verbose`; иначе — с путём к debug-логу `.teo/debug.log`.

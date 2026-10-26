@@ -11,7 +11,7 @@ import { runNew } from "./commands/new.js";
 import { runRecover } from "./commands/recover.js";
 import { runResume } from "./commands/run-task.js";
 import { runStatus } from "./commands/status.js";
-import { ExitCode, SdlcError } from "./errors/errors.js";
+import { ExitCode, TeoError } from "./errors/errors.js";
 import { msg } from "./ui/messages.js";
 import { renderError } from "./ui/plain/errors.js";
 import { colorEnabled } from "./ui/plain/style.js";
@@ -35,11 +35,11 @@ function contextFor(cmd: Command): AppContext {
 }
 
 function reportError(ctx: AppContext, err: unknown): number {
-  if (!(err instanceof SdlcError)) ctx.debugLog.write(`непредвиденная ошибка: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  if (!(err instanceof TeoError)) ctx.debugLog.write(`непредвиденная ошибка: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
   ctx.stderr.write(
     renderError(err, { homeDir: ctx.homeDir, style: ctx.style, now: ctx.clock.now(), verbose: ctx.verbose, debugLogPath: ctx.debugLog.path }),
   );
-  return err instanceof SdlcError ? err.exitCode : ExitCode.runtime;
+  return err instanceof TeoError ? err.exitCode : ExitCode.runtime;
 }
 
 /** Ошибки разбора аргументов commander → русский текст. */
@@ -75,9 +75,9 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
   };
 
-  const program = new Command("sdlc")
+  const program = new Command("teo")
     .description(msg.cli.description)
-    .version(__SDLC_VERSION__, "-V, --version", msg.cli.version)
+    .version(__TEO_VERSION__, "-V, --version", msg.cli.version)
     .helpOption("-h, --help", msg.cli.help)
     .helpCommand("help [command]", msg.cli.helpCommand)
     .configureHelp({ styleTitle: (title) => msg.cli.helpTitles[title] ?? title })

@@ -101,7 +101,7 @@ describe("изменение Policy", () => {
     const blocked = await h.state();
     expect(blocked.statusReason?.code).toBe("POLICY_STAGE_MISSING");
     // Разблокировка обычным resume запрещена
-    await expect(h.store.withLock({ command: "resume", taskKey: "T-1" }, () => unblockTask(h.store, "T-1", "почему"))).rejects.toThrow(/sdlc recover/);
+    await expect(h.store.withLock({ command: "resume", taskKey: "T-1" }, () => unblockTask(h.store, "T-1", "почему"))).rejects.toThrow(/teo recover/);
     const policy = parsePolicyBytes(Buffer.from(renamed), h.sb.policyPath);
     await expect(setStage(h.store, "T-1", "nope", policy)).rejects.toThrow(/не найден/);
     await h.store.withLock({ command: "recover", taskKey: "T-1" }, () => setStage(h.store, "T-1", "explore", policy));
@@ -119,7 +119,7 @@ describe("изменение Policy", () => {
     await h.createTask();
     const good = h.policyText;
     const { writeFile } = await import("node:fs/promises");
-    h.fake.script(EXPLORER, turn.effect(() => writeFile(h.sb.policyPath, "---\nschema: sdlc/v1\n---\n")), report());
+    h.fake.script(EXPLORER, turn.effect(() => writeFile(h.sb.policyPath, "---\nschema: teo/v1\n---\n")), report());
     await expect(h.run()).rejects.toMatchObject({ name: "PolicyError", exitCode: 2 });
     const after = await h.state();
     expect(after.phase).toBe("supervisor_pending");

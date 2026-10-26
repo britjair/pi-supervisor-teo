@@ -1,4 +1,4 @@
-// sdlc history [KEY] [--all] [--json] [--limit N] (05-cli-ui.md §2).
+// teo history [KEY] [--all] [--json] [--limit N] (05-cli-ui.md §2).
 // Без KEY — все задачи проекта, включая завершённые; с KEY — журнал событий задачи.
 
 import { startCommand, type AppContext } from "../app.js";

@@ -1,5 +1,5 @@
-// .sdlc/debug.log (02-storage.md §1): debug-лог последнего процесса, ротация — 1 файл, ≤ 5 MB.
-// Каталог .sdlc лог не создаёт: строки копятся в памяти, пока его не создаст mutating-команда.
+// .teo/debug.log (02-storage.md §1): debug-лог последнего процесса, ротация — 1 файл, ≤ 5 MB.
+// Каталог .teo лог не создаёт: строки копятся в памяти, пока его не создаст mutating-команда.
 
 import { appendFileSync, existsSync, renameSync, statSync } from "node:fs";
 import path from "node:path";
@@ -15,7 +15,7 @@ export class DebugLog {
 
   constructor(private readonly now: () => Date) {}
 
-  /** Файл лога проекта. Пишется, только когда каталог .sdlc существует. */
+  /** Файл лога проекта. Пишется, только когда каталог .teo существует. */
   attach(file: string): void {
     this.file = file;
     this.flush();

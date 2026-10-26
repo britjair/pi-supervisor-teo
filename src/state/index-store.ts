@@ -1,4 +1,4 @@
-// .sdlc/index.json — кэш для меню, не источник истины (02-storage.md §8).
+// .teo/index.json — кэш для меню, не источник истины (02-storage.md §8).
 
 import { readFile } from "node:fs/promises";
 import { z } from "zod";

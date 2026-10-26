@@ -20,7 +20,7 @@ export const testPolicy = () => {
 export async function testStore(
   opts: { root?: string; clock?: FakeClock; faults?: FaultInjector; pid?: number; isAlive?: (pid: number) => boolean } = {},
 ) {
-  const root = opts.root ?? (await tmpDir("sdlc-store-"));
+  const root = opts.root ?? (await tmpDir("teo-store-"));
   const clock = opts.clock ?? new FakeClock();
   const store = new ProjectStore({
     projectRoot: root,

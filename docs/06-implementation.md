@@ -8,9 +8,9 @@
 
 ```json
 {
-  "name": "sdlc-cli",
+  "name": "pi-supervisor-teo",
   "type": "module",
-  "bin": { "sdlc": "dist/cli.js" },
+  "bin": { "teo": "dist/cli.js" },
   "engines": { "node": ">=22.19.0" },
   "scripts": {
     "build": "tsup",
@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:e2e": "SDLC_E2E=1 vitest run test/e2e"
+    "test:e2e": "TEO_E2E=1 vitest run test/e2e"
   }
 }
 ```
@@ -78,9 +78,9 @@ src/
 │   ├── policy-loader.ts        # preflight целиком → LoadedPolicy | PolicyError
 │   ├── policy-hash.ts
 │   ├── policy-diff.ts          # структурный diff для confirm
-│   └── snapshot-store.ts       # .sdlc/policies/<hash>.md
+│   └── snapshot-store.ts       # .teo/policies/<hash>.md
 ├── state/
-│   ├── layout.ts               # все пути .sdlc в одном месте; resolveInside()
+│   ├── layout.ts               # все пути .teo в одном месте; resolveInside()
 │   ├── task-key.ts
 │   ├── atomic-file.ts          # writeFileAtomic, appendLine, fsyncDir
 │   ├── state-store.ts          # load (инварианты, outbox flush, hash-контроль), commit(mutator)
@@ -163,14 +163,14 @@ test/
 - Проект, сборка, линтер, vitest, `cli.ts` с командами-заглушками.
 - `project-root.ts`.
 - `policy/*` полностью, включая diff и снимки.
-- `sdlc doctor` в части Policy и окружения (без Pi).
+- `teo doctor` в части Policy и окружения (без Pi).
 
-**Готово, когда:** `sdlc doctor` валидирует любую Policy и печатает все ошибки с номерами строк; каждая ошибка из [01-policy.md §3.1](01-policy.md#31-ошибки) покрыта фикстурой `test/fixtures/policies/invalid/<code>.md`; любая команда с невалидной Policy завершается с кодом `2` и не создаёт `.sdlc`.
+**Готово, когда:** `teo doctor` валидирует любую Policy и печатает все ошибки с номерами строк; каждая ошибка из [01-policy.md §3.1](01-policy.md#31-ошибки) покрыта фикстурой `test/fixtures/policies/invalid/<code>.md`; любая команда с невалидной Policy завершается с кодом `2` и не создаёт `.teo`.
 
 ### M2. Хранилище и задачи
 
 - `state/*`: атомарная запись, outbox, инварианты, ремонт журнала, index, lock с takeover и heartbeat.
-- `sdlc new` (без запуска workflow), `status`, `history`, `cancel`; меню на plain-рендере.
+- `teo new` (без запуска workflow), `status`, `history`, `cancel`; меню на plain-рендере.
 
 **Готово, когда:** две задачи создаются и видны в меню; второй процесс получает exit `3` на mutating-команду и успешно выполняет `status`; unit-тесты §4.1 по хранилищу зелёные; тест с убийством процесса между записью state и append события доказывает доставку outbox.
 
@@ -188,7 +188,7 @@ test/
 - Git-инструменты supervisor-а на реальном git.
 - `doctor`: проверки моделей, авторизации и пробной сессии.
 
-**Готово, когда:** e2e smoke §4.3 проходит на реальной модели; `inspectSessionFile` верно определяет доставку prompt и висящие tool calls на реальных файлах Pi (фикстуры записываются из настоящих сессий); guard блокирует `write` в `.sdlc/tasks/<KEY>/state.json` в реальной сессии.
+**Готово, когда:** e2e smoke §4.3 проходит на реальной модели; `inspectSessionFile` верно определяет доставку prompt и висящие tool calls на реальных файлах Pi (фикстуры записываются из настоящих сессий); guard блокирует `write` в `.teo/tasks/<KEY>/state.json` в реальной сессии.
 
 ### M5. TUI
 
@@ -202,7 +202,7 @@ test/
 
 - Redaction и его тесты на наборах реальных форматов токенов.
 - `doctor --fix`.
-- `recover` для всех ситуаций [05-cli-ui.md §2.1](05-cli-ui.md#21-sdlc-recover).
+- `recover` для всех ситуаций [05-cli-ui.md §2.1](05-cli-ui.md#21-teo-recover).
 - README установки (`npm ci && npm run build && npm link`), пример `SDLC.md`.
 - Прогон чек-листа приёмки §5.
 
@@ -267,7 +267,7 @@ test/
 
 ### 4.3. E2E smoke с Pi
 
-Включается переменной `SDLC_E2E=1`; в обычном `npm test` пропускается.
+Включается переменной `TEO_E2E=1`; в обычном `npm test` пропускается.
 
 Окружение:
 
@@ -282,7 +282,7 @@ Policy `discover → execute → done` с инструкциями «созда�
 - exit `0`;
 - `state.stage = done`, `status = terminal`;
 - в журнале есть `stage.transitioned` дважды и ни одного `supervisor.protocol_error`;
-- файлы сессий лежат в `.sdlc/tasks/T-1/sessions/`.
+- файлы сессий лежат в `.teo/tasks/T-1/sessions/`.
 
 Модель для e2e задаётся в фикстуре как `default` — используется модель по умолчанию из настроек Pi.
 

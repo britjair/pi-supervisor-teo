@@ -1,4 +1,4 @@
-// sdlc recover <KEY> [--set-stage S] [--accept-policy] (05-cli-ui.md §2.1).
+// teo recover <KEY> [--set-stage S] [--accept-policy] (05-cli-ui.md §2.1).
 // Показывает state и последние события и предлагает только допустимые для ситуации действия.
 
 import path from "node:path";

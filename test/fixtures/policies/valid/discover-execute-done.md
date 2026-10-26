@@ -1,6 +1,6 @@
 ---
 # Минимальный workflow с произвольными именами (критерий приёмки 17, e2e smoke 06 §4.3).
-schema: sdlc/v1
+schema: teo/v1
 
 workflow:
   initialStage: discover

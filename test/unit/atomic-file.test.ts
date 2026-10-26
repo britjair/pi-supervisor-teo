@@ -35,10 +35,10 @@ describe("atomic-file", () => {
   });
 
   it("resolveInside не выпускает за пределы каталога", () => {
-    expect(resolveInside("/p/.sdlc/tasks/T", "artifacts/plan.md")).toBe("/p/.sdlc/tasks/T/artifacts/plan.md");
-    expect(resolveInside("/p/.sdlc/tasks/T", "")).toBe("/p/.sdlc/tasks/T");
-    expect(resolveInside("/p/.sdlc/tasks/T", "../U/state.json")).toBeNull();
-    expect(resolveInside("/p/.sdlc/tasks/T", "/etc/passwd")).toBeNull();
-    expect(resolveInside("/p/.sdlc/tasks/T", "..foo")).toBe("/p/.sdlc/tasks/T/..foo");
+    expect(resolveInside("/p/.teo/tasks/T", "artifacts/plan.md")).toBe("/p/.teo/tasks/T/artifacts/plan.md");
+    expect(resolveInside("/p/.teo/tasks/T", "")).toBe("/p/.teo/tasks/T");
+    expect(resolveInside("/p/.teo/tasks/T", "../U/state.json")).toBeNull();
+    expect(resolveInside("/p/.teo/tasks/T", "/etc/passwd")).toBeNull();
+    expect(resolveInside("/p/.teo/tasks/T", "..foo")).toBe("/p/.teo/tasks/T/..foo");
   });
 });

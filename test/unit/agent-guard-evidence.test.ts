@@ -10,7 +10,7 @@ import { tmpDir } from "../helpers/tmp.js";
 
 async function directories() {
   const project = await tmpDir();
-  const task = path.join(project, ".sdlc", "tasks", "TEST-1");
+  const task = path.join(project, ".teo", "tasks", "TEST-1");
   const artifacts = path.join(task, "artifacts");
   await mkdir(artifacts, { recursive: true });
   return { project, task, artifacts };
@@ -21,7 +21,7 @@ function config(project: string, task: string, artifacts: string, role: "agent" 
     role,
     projectRoot: project,
     taskDir: task,
-    writableInsideSdlc: [artifacts],
+    writableInsideTeo: [artifacts],
     readableRoots: [project],
     isReported,
   };
@@ -44,7 +44,7 @@ describe("ограничения доступа агента и supervisor", () 
     await symlink(project, path.join(artifacts, "back"));
     const guard = config(project, task, artifacts, "agent");
     expect(await guardToolCall(guard, "write", { path: "alias/state.json" }, project)).toMatchObject({ allow: false });
-    expect(await guardToolCall(guard, "write", { path: "back/.sdlc/tasks/TEST-1/state.json" }, artifacts)).toMatchObject({ allow: false });
+    expect(await guardToolCall(guard, "write", { path: "back/.teo/tasks/TEST-1/state.json" }, artifacts)).toMatchObject({ allow: false });
     expect(await guardToolCall(guard, "write", { path: "../state.json" }, artifacts)).toMatchObject({ allow: false });
   });
 
@@ -53,7 +53,7 @@ describe("ограничения доступа агента и supervisor", () 
     const outside = await tmpDir();
     await symlink(outside, path.join(project, "external"));
     const guard = config(project, task, artifacts, "supervisor");
-    expect(await guardToolCall(guard, "read", { path: ".sdlc/tasks/TEST-1/state.json" }, project)).toEqual({ allow: true });
+    expect(await guardToolCall(guard, "read", { path: ".teo/tasks/TEST-1/state.json" }, project)).toEqual({ allow: true });
     expect(await guardToolCall(guard, "read", { path: "external/secret.txt" }, project)).toMatchObject({ allow: false });
     expect(await guardToolCall(guard, "grep", { path: outside }, project)).toMatchObject({ allow: false });
   });

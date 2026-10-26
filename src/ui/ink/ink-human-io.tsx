@@ -40,7 +40,7 @@ export class InkHumanIO implements HumanIO {
   private readonly listeners = new Set<() => void>();
   private instance: Instance | null = null;
   private snapshot: UiState = {
-    screen: { kind: "run" }, log: [], partial: "", title: "SDLC Controller", key: "", stage: "", agent: null,
+    screen: { kind: "run" }, log: [], partial: "", title: "Pi Supervisor TEO", key: "", stage: "", agent: null,
     attempt: null, cycle: 0, activity: "", runStartedAtMs: 0, activityStartedAtMs: 0, partialActor: null,
     thinking: false, thinkingText: "", statusOverlay: false, stopConfirm: false,
     usage: { inputTokens: 0, outputTokens: 0, costUsd: null },

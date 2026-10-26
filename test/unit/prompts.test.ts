@@ -47,7 +47,7 @@ describe.each(POLICIES)("промпты на Policy %s", (name) => {
       handoff: null,
       previousResults: [],
       artifacts: [],
-      taskDirDisplay: ".sdlc/tasks/PAY-142",
+      taskDirDisplay: ".teo/tasks/PAY-142",
     });
     await expect(prompt).toMatchFileSnapshot(snapshot("initial"));
   });

@@ -1,4 +1,4 @@
 ---
-schema: sdlc/v2   # expect: SCHEMA_UNSUPPORTED
+schema: teo/v2   # expect: SCHEMA_UNSUPPORTED
 workflow: {}
 ---

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { turn } from "../../src/agents/fake/fake-runtime.js";
 import { Harness } from "../helpers/engine.js";
 
-const ART = ".sdlc/tasks/T-1/artifacts/notes-plan.md";
+const ART = ".teo/tasks/T-1/artifacts/notes-plan.md";
 
 export function happyPath(h: Harness) {
   h.fake
@@ -63,7 +63,7 @@ describe("движок: discover → execute → done", () => {
     expect(await readFile(path.join(h.project, "NOTES.md"), "utf8")).toBe("hello\n");
     // handoff попал в initial prompt агента нового этапа
     expect(h.promptsTo("executor-001.jsonl")[0]).toContain("План в artifacts/notes-plan.md");
-    expect(h.promptsTo("explorer-001.jsonl")[0]).toMatch(/^\[sdlc:prompt id=[0-9A-Z]{26} kind=initial run=[0-9A-Z]{26}\]/);
+    expect(h.promptsTo("explorer-001.jsonl")[0]).toMatch(/^\[teo:prompt id=[0-9A-Z]{26} kind=initial run=[0-9A-Z]{26}\]/);
     expect(h.fake.remaining("sessions/supervisor.jsonl")).toBe(0);
   });
 });

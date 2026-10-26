@@ -18,7 +18,7 @@ export async function unblockTask(store: ProjectStore, key: string, note: string
   const state = await store.tasks.load(key);
   if (state.status !== "blocked") throw new UsageError(`Задача ${key} не заблокирована.`);
   const code = state.statusReason?.code ?? "";
-  if (RECOVER_ONLY_CODES.includes(code)) throw new UsageError(`Задачу ${key} (${code}) можно восстановить только командой: sdlc recover ${key}`);
+  if (RECOVER_ONLY_CODES.includes(code)) throw new UsageError(`Задачу ${key} (${code}) можно восстановить только командой: teo recover ${key}`);
   return store.tasks.commit(
     key,
     (s, c) => {
@@ -103,7 +103,7 @@ export async function acceptPolicy(store: ProjectStore, key: string, policy: Loa
   if (state.policyHash === policy.hash) throw new UsageError(`Задача ${key} уже идёт по текущей Policy.`);
   const stage = getStage(policy.spec, state.stage);
   if (!stage || stage.kind === "terminal") {
-    throw new UsageError(`Этапа «${state.stage}» нет в текущей Policy. Выберите этап: sdlc recover ${key} --set-stage <этап>`);
+    throw new UsageError(`Этапа «${state.stage}» нет в текущей Policy. Выберите этап: teo recover ${key} --set-stage <этап>`);
   }
   const diff = (await manualPolicyDiff(store, state, policy)) ?? [];
   return store.tasks.commit(
@@ -144,7 +144,7 @@ export async function readStateCopy(key: string, file: string): Promise<TaskStat
 
 /**
  * STATE_TAMPERED → заменить state содержимым копии: изменённого файла («принять как есть»)
- * или последнего state, записанного sdlc до подмены («восстановить»). Выбор человека — в журнал.
+ * или последнего state, записанного teo до подмены («восстановить»). Выбор человека — в журнал.
  */
 export async function replaceTamperedState(
   store: ProjectStore,

@@ -8,7 +8,7 @@ import { cliPath } from "./paths.js";
 const created: string[] = [];
 
 /** Временный каталог, удаляется после теста. */
-export async function tmpDir(prefix = "sdlc-test-"): Promise<string> {
+export async function tmpDir(prefix = "teo-test-"): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
   created.push(dir);
   return dir;

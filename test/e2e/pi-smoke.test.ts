@@ -1,4 +1,4 @@
-// Запускать только с SDLC_E2E=1 и PI_CODING_AGENT_DIR=<временная копия учётных данных Pi>.
+// Запускать только с TEO_E2E=1 и PI_CODING_AGENT_DIR=<временная копия учётных данных Pi>.
 // Содержимое auth.json не выводится. Тест не читает пользовательский ~/.pi напрямую.
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { cliPath, validDir } from "../helpers/paths.js";
 import { runCli, runProcess, sandbox } from "../helpers/tmp.js";
 
-const enabled = process.env.SDLC_E2E === "1";
+const enabled = process.env.TEO_E2E === "1";
 
 describe.skipIf(!enabled)("Pi e2e", () => {
   // Две Policy с разными этапами, агентами и файлами — один и тот же dist/cli.js (критерии 3 и 17)
@@ -19,8 +19,8 @@ describe.skipIf(!enabled)("Pi e2e", () => {
     if (!auth) throw new Error("Для e2e укажите PI_CODING_AGENT_DIR на временную копию каталога Pi.");
     const policy = await readFile(path.join(validDir, `${fixture}.md`));
     const sb = await sandbox(policy);
-    await runProcess("git", ["config", "user.name", "SDLC Test"], sb.project);
-    await runProcess("git", ["config", "user.email", "sdlc-test@example.invalid"], sb.project);
+    await runProcess("git", ["config", "user.name", "TEO Test"], sb.project);
+    await runProcess("git", ["config", "user.email", "teo-test@example.invalid"], sb.project);
     const doctor = await runCli(sb, ["doctor"], { env: { PI_CODING_AGENT_DIR: auth } });
     expect(doctor.code).toBe(0);
     expect(doctor.stdout).toContain("✓ Pi SDK 1.4.0 загружается");
@@ -30,7 +30,7 @@ describe.skipIf(!enabled)("Pi e2e", () => {
         (error) => resolve({ code: error ? (typeof error.code === "number" ? error.code : null) : 0 }),
       );
     });
-    const dir = path.join(sb.project, ".sdlc", "tasks", "T-1");
+    const dir = path.join(sb.project, ".teo", "tasks", "T-1");
     const state = JSON.parse(await readFile(path.join(dir, "state.json"), "utf8"));
     // При сбое выводим только фазу и типы событий, никогда stdout/stderr модели или credentials.
     const events = (await readFile(path.join(dir, "events.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
@@ -52,7 +52,7 @@ describe.skipIf(!enabled)("Pi e2e", () => {
     if (!agentDir) throw new Error("Для e2e укажите временную копию PI_CODING_AGENT_DIR.");
     const { PiAgentRuntime } = await import("../../src/agents/pi/pi-agent-runtime.js");
     const sb = await sandbox();
-    const task = path.join(sb.project, ".sdlc", "tasks", "T-1");
+    const task = path.join(sb.project, ".teo", "tasks", "T-1");
     await mkdir(path.join(task, "artifacts"), { recursive: true });
     const stateFile = path.join(task, "state.json");
     await writeFile(stateFile, "не менять");
@@ -63,7 +63,7 @@ describe.skipIf(!enabled)("Pi e2e", () => {
       systemPromptAppend: "Ты проверяешь разрешения инструмента. Выполни ровно один вызов write по указанному пути. Не используй другие инструменты.",
       builtinTools: ["write"], customTools: [],
       piResources: { contextFiles: false, extensions: false, skills: false },
-      guard: { role: "agent", projectRoot: sb.project, taskDir: task, writableInsideSdlc: [path.join(task, "artifacts")], readableRoots: [sb.project], isReported: () => false },
+      guard: { role: "agent", projectRoot: sb.project, taskDir: task, writableInsideTeo: [path.join(task, "artifacts")], readableRoots: [sb.project], isReported: () => false },
     });
     let rejected = false;
     const unsubscribe = handle.subscribe((e) => { if (e.type === "tool.finished" && e.toolName === "write" && !e.ok) rejected = true; });

@@ -148,7 +148,7 @@ export class PiAgentRuntime implements AgentRuntime {
       noContextFiles: !spec.piResources.contextFiles,
       noExtensions: !spec.piResources.extensions,
       noSkills: !spec.piResources.skills,
-      extensionFactories: [{ name: "sdlc-guard", factory: createGuardExtension(spec.guard, spec.cwd) }],
+      extensionFactories: [{ name: "teo-guard", factory: createGuardExtension(spec.guard, spec.cwd) }],
     });
     await loader.reload();
     const { session } = await createAgentSession({

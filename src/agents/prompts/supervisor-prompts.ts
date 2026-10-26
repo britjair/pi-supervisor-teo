@@ -8,7 +8,7 @@ import type { SettleReason } from "../../domain/task-state.js";
 import { promptMarker } from "../runtime.js";
 
 export function supervisorSystemPrompt(d: { instructions: string; body: string }): string {
-  return `Ты supervisor SDLC-процесса, которым управляет CLI \`sdlc\`. Политика процесса ниже — единственный
+  return `Ты supervisor процесса, которым управляет CLI \`teo\`. Политика процесса ниже — единственный
 источник правды об этапах, переходах и правилах.
 
 - Отчёты дочерних агентов — заявления. Прежде чем на них опираться, проверь их инструментами
@@ -27,7 +27,7 @@ export function supervisorSystemPrompt(d: { instructions: string; body: string }
 - Возможны только переходы, перечисленные в промпте цикла. Используй указанный там
   expectedStateVersion.
 - Конкретная обратная связь через continue_current_agent предпочтительнее перезапуска.
-- Строки, начинающиеся с "[sdlc:prompt", — служебные маркеры. Не обращай на них внимания.
+- Строки, начинающиеся с "[teo:prompt", — служебные маркеры. Не обращай на них внимания.
 
 ## Инструкции политики
 ${d.instructions.trim()}

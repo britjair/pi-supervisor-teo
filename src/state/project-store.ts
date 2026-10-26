@@ -1,4 +1,4 @@
-// Хранилище проекта .sdlc/ целиком: задачи, index, lock, снимки Policy (02-storage.md).
+// Хранилище проекта .teo/ целиком: задачи, index, lock, снимки Policy (02-storage.md).
 
 import { mkdir, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -85,16 +85,16 @@ export class ProjectStore {
     return this.deps.policy;
   }
 
-  async sdlcExists(): Promise<boolean> {
-    return stat(this.layout.sdlcDir).then(
+  async teoExists(): Promise<boolean> {
+    return stat(this.layout.teoDir).then(
       (s) => s.isDirectory(),
       () => false,
     );
   }
 
-  /** Создать .sdlc/ и .sdlc/.gitignore (D18). Только для mutating-операций после preflight. */
-  async ensureSdlcDir(): Promise<void> {
-    await mkdir(this.layout.sdlcDir, { recursive: true, mode: 0o700 });
+  /** Создать .teo/ и .teo/.gitignore (D18). Только для mutating-операций после preflight. */
+  async ensureTeoDir(): Promise<void> {
+    await mkdir(this.layout.teoDir, { recursive: true, mode: 0o700 });
     await writeFile(this.layout.gitignore, GITIGNORE_CONTENT, { flag: "wx", mode: 0o644 }).catch((err: NodeJS.ErrnoException) => {
       if (err.code !== "EEXIST") throw err;
     });
@@ -122,20 +122,20 @@ export class ProjectStore {
 
   /** Ключ существующей задачи или TaskNotFoundError (exit 4). */
   async requireKey(input: string): Promise<string> {
-    const key = (await this.sdlcExists()) ? await this.resolveKey(input) : null;
+    const key = (await this.teoExists()) ? await this.resolveKey(input) : null;
     if (!key) throw new TaskNotFoundError(`Задача ${input} не найдена в проекте ${this.layout.projectRoot}.`);
     return key;
   }
 
   /**
    * Выполнить mutating-операцию под lock-ом проекта (02-storage.md §10.4).
-   * `create: true` — разрешено создать .sdlc (создание задачи); иначе .sdlc должен существовать.
+   * `create: true` — разрешено создать .teo (создание задачи); иначе .teo должен существовать.
    */
   async withLock<T>(
     opts: { command: string; taskKey: string | null; create?: boolean },
     fn: (lock: HeldLock) => Promise<T>,
   ): Promise<T> {
-    if (opts.create) await this.ensureSdlcDir();
+    if (opts.create) await this.ensureTeoDir();
     const lock = await this.locks.acquire({ command: opts.command, taskKey: opts.taskKey });
     const unregister = onCleanup(() => lock.release());
     try {
@@ -178,7 +178,7 @@ export class ProjectStore {
 
   /** Временные файлы и каталоги, оставленные умершими процессами (02-storage.md §7.1). */
   async findOrphans(): Promise<string[]> {
-    const dirs = [this.layout.sdlcDir, this.layout.policiesDir, this.layout.tasksDir];
+    const dirs = [this.layout.teoDir, this.layout.policiesDir, this.layout.tasksDir];
     for (const key of await this.tasks.listKeys()) {
       const t = this.tasks.task(key);
       dirs.push(t.dir, t.runsDir, t.artifactsDir);
@@ -205,6 +205,6 @@ export class ProjectStore {
   async removeOrphans(): Promise<string[]> {
     const orphans = await this.findOrphans();
     for (const p of orphans) await rm(p, { recursive: true, force: true }).catch(() => unlink(p).catch(() => undefined));
-    return orphans.map((p) => path.relative(this.layout.sdlcDir, p));
+    return orphans.map((p) => path.relative(this.layout.teoDir, p));
   }
 }

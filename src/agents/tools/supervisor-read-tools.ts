@@ -10,7 +10,7 @@ import { argsPreview, redact, truncate } from "../../util/redact.js";
 import { resolveWithin } from "../../util/paths.js";
 import type { EngineCore } from "../../workflow/context.js";
 import { sha256File } from "../evidence-refs.js";
-import type { SdlcToolDefinition, ToolResult } from "../runtime.js";
+import type { TeoToolDefinition, ToolResult } from "../runtime.js";
 import { GitInspector } from "./git-inspect.js";
 
 const MAX_TEXT = 64 * 1024;
@@ -20,8 +20,8 @@ const ok = (content: string, max = MAX_TEXT): ToolResult => ({ content: truncate
 const fail = (code: string, message: string): ToolResult => ({ content: `${code}: ${message}`, isError: true });
 const json = (value: unknown, max = MAX_TEXT) => ok(JSON.stringify(redact(value), null, 2), max);
 
-function tool<S extends z.ZodType>(def: SdlcToolDefinition<S>): SdlcToolDefinition {
-  return def as unknown as SdlcToolDefinition;
+function tool<S extends z.ZodType>(def: TeoToolDefinition<S>): TeoToolDefinition {
+  return def as unknown as TeoToolDefinition;
 }
 
 /** Простой glob: **, *, ? */
@@ -72,7 +72,7 @@ function eventLine(e: TaskEvent): string {
   return `${e.timestamp} ${e.id} ${e.type} ${argsPreview(e.payload, 300)}`;
 }
 
-export function supervisorReadTools(core: EngineCore): SdlcToolDefinition[] {
+export function supervisorReadTools(core: EngineCore): TeoToolDefinition[] {
   const root = core.store.layout.projectRoot;
   const git = new GitInspector(core.exec, root);
   const t = () => core.task();
@@ -185,7 +185,7 @@ export function supervisorReadTools(core: EngineCore): SdlcToolDefinition[] {
     }),
     tool({
       name: "inspect_git_status",
-      description: "Ветка, HEAD, upstream и ahead/behind, изменённые и неотслеживаемые файлы (без .sdlc), незавершённый merge/rebase",
+      description: "Ветка, HEAD, upstream и ahead/behind, изменённые и неотслеживаемые файлы (без .teo), незавершённый merge/rebase",
       parameters: z.object({}),
       execute: async () => json(await git.status()),
     }),
@@ -197,7 +197,7 @@ export function supervisorReadTools(core: EngineCore): SdlcToolDefinition[] {
     }),
     tool({
       name: "inspect_git_diff",
-      description: "git diff (или --stat) между ссылками или рабочим деревом, без .sdlc",
+      description: "git diff (или --stat) между ссылками или рабочим деревом, без .teo",
       parameters: z.object({
         base: z.string().optional(),
         head: z.string().optional(),

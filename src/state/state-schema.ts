@@ -60,7 +60,7 @@ export const taskStateSchema = z.object({
   updatedAt: iso,
   version: z.int().min(1),
   policyHash: z.custom<PolicyHash>((v) => typeof v === "string" && /^sha256:[0-9a-f]{64}$/.test(v), "ожидается sha256:<hex>"),
-  policySchema: z.literal("sdlc/v1"),
+  policySchema: z.literal("teo/v1"),
   stage: id,
   stageEnteredAt: iso,
   stageEntryEventId: id,

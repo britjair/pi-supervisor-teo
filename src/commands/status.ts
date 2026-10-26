@@ -1,4 +1,4 @@
-// sdlc status [KEY] [--json] (05-cli-ui.md §6). Без lock-а, ничего не пишет.
+// teo status [KEY] [--json] (05-cli-ui.md §6). Без lock-а, ничего не пишет.
 
 import { startCommand, type AppContext } from "../app.js";
 import { isFinished } from "../domain/task-state.js";

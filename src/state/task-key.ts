@@ -1,4 +1,4 @@
-// Ключ задачи — имя каталога в .sdlc/tasks, 02-storage.md §2.
+// Ключ задачи — имя каталога в .teo/tasks, 02-storage.md §2.
 
 export const TASK_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 

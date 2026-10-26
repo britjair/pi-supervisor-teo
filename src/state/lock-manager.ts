@@ -1,4 +1,4 @@
-// Project lock .sdlc/project.lock.json, 02-storage.md §10.
+// Project lock .teo/project.lock.json, 02-storage.md §10.
 
 import { open, readFile, stat, unlink } from "node:fs/promises";
 import { z } from "zod";
@@ -301,6 +301,6 @@ export class HeldLock {
 }
 
 function conflictText(inspection: Exclude<LockInspection, { kind: "none" }>): string {
-  if (inspection.kind === "unreadable") return "Проект занят другим процессом sdlc (lock-файл только что создан или повреждён).";
-  return "Проект занят другим процессом sdlc.";
+  if (inspection.kind === "unreadable") return "Проект занят другим процессом teo (lock-файл только что создан или повреждён).";
+  return "Проект занят другим процессом teo.";
 }

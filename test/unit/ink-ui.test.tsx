@@ -117,7 +117,7 @@ describe("Ink UI", () => {
 
     const frame = view.lastFrame() ?? "";
     expect(frame).toContain("PAY-142 · Ревью · agent: reviewer · attempt 2");
-    expect(frame).toContain("SDLC: Ревью");
+    expect(frame).toContain("TEO: Ревью");
     expect(frame).toContain("проверяю изменения");
     expect(frame.split("\n").every((line) => [...line].length <= 80)).toBe(true);
 

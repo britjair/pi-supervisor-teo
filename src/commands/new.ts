@@ -1,4 +1,4 @@
-// sdlc new [KEY] [--title T] [--description-file F | --description -] (05-cli-ui.md §2, §3.2).
+// teo new [KEY] [--title T] [--description-file F | --description -] (05-cli-ui.md §2, §3.2).
 // Создание задачи — один commit в новом каталоге; затем движок (если не --no-run).
 
 import { readFile } from "node:fs/promises";

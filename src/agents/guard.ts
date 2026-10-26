@@ -2,7 +2,7 @@
 // Guard защищает от ошибок модели, а не от злонамеренного агента: bash не ограничивается.
 
 import path from "node:path";
-import { SDLC_DIR_NAME } from "../state/layout.js";
+import { TEO_DIR_NAME } from "../state/layout.js";
 import { isInside, realpathLoose, resolveWithin } from "../util/paths.js";
 import type { GuardConfig } from "./runtime.js";
 
@@ -28,14 +28,14 @@ export async function guardToolCall(config: GuardConfig, toolName: string, args:
       const p = pathArg(args);
       if (p === null) return { allow: true };
       const target = await realpathLoose(path.resolve(cwd, p));
-      const sdlcDir = await realpathLoose(path.join(config.projectRoot, SDLC_DIR_NAME));
-      if (!isInside(sdlcDir, target)) return { allow: true };
-      for (const dir of config.writableInsideSdlc) {
+      const teoDir = await realpathLoose(path.join(config.projectRoot, TEO_DIR_NAME));
+      if (!isInside(teoDir, target)) return { allow: true };
+      for (const dir of config.writableInsideTeo) {
         if (isInside(await realpathLoose(dir), target)) return { allow: true };
       }
       return {
         allow: false,
-        reason: `Запись в ${p} запрещена: внутри .sdlc агент может писать только в ${path.relative(config.projectRoot, config.writableInsideSdlc[0] ?? config.taskDir)}/.`,
+        reason: `Запись в ${p} запрещена: внутри .teo агент может писать только в ${path.relative(config.projectRoot, config.writableInsideTeo[0] ?? config.taskDir)}/.`,
         terminate: false,
       };
     }

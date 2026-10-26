@@ -1,7 +1,7 @@
 // Модель Policy (~/.pi/SDLC.md), 01-policy.md §2. Только типы и чистые функции.
 // Код не знает ни одного конкретного этапа или агента: всё приходит из файла.
 
-export const POLICY_SCHEMA_ID = "sdlc/v1";
+export const POLICY_SCHEMA_ID = "teo/v1";
 export type PolicySchemaId = typeof POLICY_SCHEMA_ID;
 
 export type PolicyHash = `sha256:${string}`;
@@ -178,7 +178,7 @@ const MODEL_REF_RE = /^[^\s/:]+\/\S+$/;
 
 /**
  * Синтаксический разбор modelRef (01-policy.md §2.3). Существование модели здесь не проверяется:
- * это делает Pi SDK при старте workflow и `sdlc doctor`.
+ * это делает Pi SDK при старте workflow и `teo doctor`.
  * Суффикс `:<thinking>` распознаётся только с известным уровнем: id моделей тоже бывают с двоеточием.
  */
 export function parseModelRef(ref: string): ParsedModelRef | null {

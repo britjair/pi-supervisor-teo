@@ -1,5 +1,5 @@
 ---
-schema: sdlc/v1
+schema: teo/v1
 
 workflow:
   initialStage: requirements   # expect: NO_REACHABLE_TERMINAL

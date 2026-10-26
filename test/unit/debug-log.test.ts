@@ -7,9 +7,9 @@ import { FakeClock } from "../helpers/fake-clock.js";
 import { tmpDir } from "../helpers/tmp.js";
 
 describe("DebugLog", () => {
-  it("не создаёт .sdlc: строки ждут каталога, потом пишутся без секретов", async () => {
+  it("не создаёт .teo: строки ждут каталога, потом пишутся без секретов", async () => {
     const root = await tmpDir();
-    const file = path.join(root, ".sdlc", "debug.log");
+    const file = path.join(root, ".teo", "debug.log");
     const clock = new FakeClock();
     const log = new DebugLog(() => clock.now());
     log.attach(file);

@@ -37,7 +37,7 @@ describe("Pi SDK", () => {
       systemPromptAppend: "Работай только с задачей.", builtinTools: ["read"],
       customTools: [{ name: "report_result", description: "Отчёт", parameters: z.object({ summary: z.string() }), execute: async () => ({ content: "готово", terminate: true }) }],
       piResources: { contextFiles: false, extensions: false, skills: false },
-      guard: { role: "agent", projectRoot: root, taskDir: root, writableInsideSdlc: [root], readableRoots: [root], isReported: () => false },
+      guard: { role: "agent", projectRoot: root, taskDir: root, writableInsideTeo: [root], readableRoots: [root], isReported: () => false },
     };
     const handle = await runtime.openSession(spec);
     expect(handle.sessionFile).toBe(file);

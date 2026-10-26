@@ -2,10 +2,10 @@
 
 Детализирует разделы 5.3, 9, 11, 18 [SDLC_CLI_SPEC.md](../SDLC_CLI_SPEC.md).
 
-## 1. Layout `.sdlc/`
+## 1. Layout `.teo/`
 
 ```text
-<project-root>/.sdlc/
+<project-root>/.teo/
 ├── .gitignore                  # содержимое: "*" — каталог игнорирует сам себя
 ├── index.json                  # кэш для меню, не источник истины
 ├── project.lock.json           # существует, пока жив mutating-процесс
@@ -31,10 +31,10 @@
 | Было | Стало | Почему |
 |---|---|---|
 | `plan.md` в корне задачи | `artifacts/` (свободная структура) | «План» — понятие конкретного процесса. CLI не должен знать, что он существует. Policy сама говорит агентам, например, «сохрани план в `artifacts/plan.md`» |
-| — | `runs/`, `policies/`, `.sdlc/.gitignore` | Нужны для recovery, проверки отчётов и diff политик |
-| «рекомендуется добавить `.sdlc/` в `.gitignore` проекта» | CLI сам создаёт `.sdlc/.gitignore` с `*` | Не нужно трогать файлы проекта, и `git status` у агентов остаётся чистым |
+| — | `runs/`, `policies/`, `.teo/.gitignore` | Нужны для recovery, проверки отчётов и diff политик |
+| «рекомендуется добавить `.teo/` в `.gitignore` проекта» | CLI сам создаёт `.teo/.gitignore` с `*` | Не нужно трогать файлы проекта, и `git status` у агентов остаётся чистым |
 
-`.sdlc/` создаётся лениво — только при первой mutating-операции (создание задачи), и только после успешного preflight Policy.
+`.teo/` создаётся лениво — только при первой mutating-операции (создание задачи), и только после успешного preflight Policy.
 
 ## 2. `task-key`
 
@@ -71,9 +71,9 @@ type TaskState = {
 
   // Policy
   policyHash: `sha256:${string}`;
-  policySchema: "sdlc/v1";
+  policySchema: "teo/v1";
 
-  // SDLC-этап (строка из Policy, не enum)
+  // этап процесса (строка из Policy, не enum)
   stage: string;
   stageEnteredAt: string;
   stageEntryEventId: string;     // id события task.created или stage.transitioned, открывшего этап
@@ -318,7 +318,7 @@ type TaskEvent = {
 ### 6.4. Чтение и восстановление журнала
 
 - Чтение построчное. Последняя строка без `\n` или с невалидным JSON считается обрывом записи: она переносится в `events.jsonl.corrupt-<timestamp>`, файл обрезается до последней целой строки, пишется `runtime.recovered { action: "truncated_event_tail" }`.
-- Невалидная строка **в середине** файла — `TaskCorruptedError` (exit 4). Автоматического ремонта нет, `sdlc doctor` показывает номер строки.
+- Невалидная строка **в середине** файла — `TaskCorruptedError` (exit 4). Автоматического ремонта нет, `teo doctor` показывает номер строки.
 - `read_recent_events` читает с конца файла блоками по 64 KB, не загружая весь журнал.
 
 ## 7. Атомарная запись
@@ -391,7 +391,7 @@ ensureOutboxFlushed(state):
 
 ### 7.5. Обнаружение подмены state
 
-Дочерние агенты имеют `bash` и физически могут изменить `.sdlc/`. Запись через `write` и `edit` блокируется guard-расширением (см. [04-agents.md](04-agents.md#guard-extension)), для `bash` это невозможно. Поэтому:
+Дочерние агенты имеют `bash` и физически могут изменить `.teo/`. Запись через `write` и `edit` блокируется guard-расширением (см. [04-agents.md](04-agents.md#guard-extension)), для `bash` это невозможно. Поэтому:
 
 - после каждого `commit` процесс хранит в памяти `sha256(state.json)`;
 - перед каждым `load()` hash сверяется;
@@ -419,11 +419,11 @@ type ProjectIndex = {
 
 - При каждом запуске меню index сверяется с `tasks/*/state.json` по `(key, stateVersion)`. При расхождении он перестраивается из state-файлов и перезаписывается, если процесс держит lock.
 - Процесс без lock строит меню из state-файлов в памяти и index не пишет.
-- Каталог задачи без `state.json` или с невалидным state показывается в меню как `⚠ <key> повреждена` и не открывается. `sdlc doctor` выводит подробности.
+- Каталог задачи без `state.json` или с невалидным state показывается в меню как `⚠ <key> повреждена` и не открывается. `teo doctor` выводит подробности.
 
 ## 9. `runtime.json`
 
-Живая телеметрия для TUI, для `sdlc status` из второго процесса и для диагностики. Не источник истины, не участвует в recovery.
+Живая телеметрия для TUI, для `teo status` из второго процесса и для диагностики. Не источник истины, не участвует в recovery.
 
 ```ts
 type RuntimeInfo = {
@@ -479,7 +479,7 @@ acquire():
 | Условие | Результат |
 |---|---|
 | `hostname` = текущий и `process.kill(pid, 0)` даёт `ESRCH` | протухший |
-| `hostname` = текущий и PID жив | **не** протухший, даже при старом heartbeat. PID мог быть переиспользован: тогда пользователь снимает lock вручную через `sdlc doctor` |
+| `hostname` = текущий и PID жив | **не** протухший, даже при старом heartbeat. PID мог быть переиспользован: тогда пользователь снимает lock вручную через `teo doctor` |
 | `hostname` ≠ текущий | никогда не протухший автоматически (каталог может лежать на сетевом диске) |
 
 `takeover(existing)`:
@@ -501,17 +501,17 @@ acquire():
 
 | Операция | Lock |
 |---|---|
-| Меню `sdlc` до выбора действия | не нужен (только чтение) |
+| Меню `teo` до выбора действия | не нужен (только чтение) |
 | Создание задачи, продолжение, `resume`, `recover`, `cancel`, `doctor --fix` | нужен |
 | `status`, `history`, `doctor` | не нужен; показывают, кто держит lock |
 
 Если в меню выбрано mutating-действие, а lock занят:
 
 ```text
-Project is locked by another sdlc process
+Project is locked by another teo process
   PID 18432 on macbook, task PAY-142, heartbeat 4s ago
 
-You can view status: sdlc status PAY-142
+You can view status: teo status PAY-142
 ```
 
 Пользователь возвращается в меню; если запрошена неинтерактивная команда — exit 3.

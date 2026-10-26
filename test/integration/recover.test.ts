@@ -1,4 +1,4 @@
-// sdlc recover (05-cli-ui.md §2.1): каждая ситуация таблицы и флаги без меню.
+// teo recover (05-cli-ui.md §2.1): каждая ситуация таблицы и флаги без меню.
 
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -43,13 +43,13 @@ const recover = (h: Harness, human: ScriptedHumanIO | null, opts = {}) => {
 };
 
 describe("recover: подмена state", () => {
-  it("показывает diff и восстанавливает state, записанный sdlc до подмены", async () => {
+  it("показывает diff и восстанавливает state, записанный teo до подмены", async () => {
     const h = await tampered();
     const human = new ScriptedHumanIO([{ select: "Восстановить state" }]);
     expect(await recover(h, human).result).toBe(0);
     expect(human.printed).toMatch(/state\.json\.tampered-.* относительно последнего state/);
     expect(human.printed).toContain('stage: "discover" → "done"');
-    expect(human.printed).toContain("Следующий шаг: sdlc resume T-1");
+    expect(human.printed).toContain("Следующий шаг: teo resume T-1");
 
     const s = await h.state();
     expect(s).toMatchObject({ stage: "discover", status: "active", phase: "agent_running", statusReason: null });
@@ -133,7 +133,7 @@ describe("recover: этап и Policy", () => {
     const human = new ScriptedHumanIO([{ select: "Перевести задачу на этап" }, { select: "(explore)" }]);
     expect(await recover(h, human).result).toBe(0);
     expect(human.printed).toContain("Этапа «discover» нет в текущей Policy");
-    expect(human.printed).toContain("sdlc recover T-1");
+    expect(human.printed).toContain("teo recover T-1");
     // Принять Policy нельзя: в ней нет текущего этапа
     expect(human.printed).not.toContain("Принять текущую Policy");
     expect(await h.state()).toMatchObject({ stage: "explore", status: "active", phase: "agent_pending" });
@@ -146,7 +146,7 @@ describe("recover: этап и Policy", () => {
 
     const hint = await runCli(sb, ["recover", "T-1"]);
     expect(hint.code).toBe(1);
-    expect(hint.stderr).toContain("sdlc recover T-1 --set-stage <этап>");
+    expect(hint.stderr).toContain("teo recover T-1 --set-stage <этап>");
     expect(hint.stderr).not.toContain("--accept-policy");
 
     await writeFile(sb.policyPath, policy + "\nНовое правило.\n");
@@ -154,7 +154,7 @@ describe("recover: этап и Policy", () => {
     const accepted = await runCli(sb, ["recover", "T-1", "--accept-policy"]);
     expect(accepted.stdout).toContain("✓ Задача T-1 идёт по текущей Policy.");
     expect(accepted.code).toBe(0);
-    const stateFile = path.join(sb.project, ".sdlc", "tasks", "T-1", "state.json");
+    const stateFile = path.join(sb.project, ".teo", "tasks", "T-1", "state.json");
     expect((JSON.parse(await readFile(stateFile, "utf8")) as TaskState).policyHash).toBe(newHash);
 
     const moved = await runCli(sb, ["recover", "t-1", "--set-stage", "execute"]);

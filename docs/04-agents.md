@@ -6,9 +6,9 @@
 
 ## 1. Факты о Pi SDK, на которые опирается дизайн
 
-| Факт | Следствие для sdlc |
+| Факт | Следствие для teo |
 |---|---|
-| `SessionManager.open(path, sessionDir?, cwdOverride?)` для несуществующего `path` создаёт новую сессию и сохраняет её **по этому пути** | Сессии лежат в `.sdlc/tasks/<KEY>/sessions/<agentId>-<NNN>.jsonl`, а не в `~/.pi/agent/sessions` |
+| `SessionManager.open(path, sessionDir?, cwdOverride?)` для несуществующего `path` создаёт новую сессию и сохраняет её **по этому пути** | Сессии лежат в `.teo/tasks/<KEY>/sessions/<agentId>-<NNN>.jsonl`, а не в `~/.pi/agent/sessions` |
 | Файл сессии создаётся при первом user-сообщении (с 1.x), затем append-only JSONL | Наличие `promptId` в файле = prompt доставлен (recovery, [03-engine.md §8](03-engine.md#recovery)) |
 | `session.prompt(text)` резолвится после завершения всего хода, включая tool calls и встроенные ретраи | Отдельный `waitForIdle` не нужен |
 | Ошибки провайдера не бросаются, а завершают ход сообщением с `stopReason: "error" \| "aborted"` и `errorMessage` | `RunOutcome` строится по последнему assistant-сообщению |
@@ -18,9 +18,9 @@
 | `resolveCliModel({ cliModel, modelRuntime })` разбирает `provider/id[:thinking]` | Разрешение `modelRef` из Policy |
 | Extension-событие `tool_call` может вернуть `{ block: true, reason, terminate? }` | Guard путей и «после отчёта больше ничего» |
 | Auto-compaction включена по умолчанию; события `compaction_start/end` | Повторная подача полного текста Policy supervisor-у после compaction |
-| Пакет требует Node `>= 22.19.0` | `engines.node` у sdlc такой же |
+| Пакет требует Node `>= 22.19.0` | `engines.node` у teo такой же |
 
-Pi CLI и SDK внутри sdlc читают общий `~/.pi/agent` (`auth.json`, `settings.json`, `models-store.json`), поэтому их версии должны совпадать. `sdlc doctor` сравнивает версию SDK с `pi --version` и предупреждает о расхождении.
+Pi CLI и SDK внутри teo читают общий `~/.pi/agent` (`auth.json`, `settings.json`, `models-store.json`), поэтому их версии должны совпадать. `teo doctor` сравнивает версию SDK с `pi --version` и предупреждает о расхождении.
 
 ## 2. Интерфейс `AgentRuntime`
 
@@ -62,7 +62,7 @@ export type SessionSpec = {
   model: ResolvedModel;
   systemPromptAppend: string;         // см. §6
   builtinTools: string[];             // итоговый allowlist встроенных tools Pi
-  customTools: SdlcToolDefinition[];  // §4, §5 — независимы от Pi-типов
+  customTools: TeoToolDefinition[];  // §4, §5 — независимы от Pi-типов
   piResources: { contextFiles: boolean; extensions: boolean; skills: boolean };
   guard: GuardConfig;                 // §3
 };
@@ -77,7 +77,7 @@ export type SessionFileInfo = {
   exists: boolean;
   valid: boolean;
   parseError: string | null;
-  promptIds: string[];                // извлечены из маркеров [sdlc:prompt id=…]
+  promptIds: string[];                // извлечены из маркеров [teo:prompt id=…]
   lastEntry:
     | { kind: "assistant"; stopReason: string; text: string | null; danglingToolCalls: ToolCallSummary[] }
     | { kind: "user" | "toolResult" | "other" }
@@ -86,7 +86,7 @@ export type SessionFileInfo = {
 };
 ```
 
-`SdlcToolDefinition` — собственный тип sdlc (имя, описание, JSON Schema параметров через `typebox`, `execute`). `PiAgentRuntime` конвертирует его в `ToolDefinition` Pi через `defineTool`. Бизнес-логика не импортирует ничего из `@earendil-works/*`; это проверяется правилом линтера (`no-restricted-imports` везде, кроме `src/agents/pi/`).
+`TeoToolDefinition` — собственный тип teo (имя, описание, JSON Schema параметров через `typebox`, `execute`). `PiAgentRuntime` конвертирует его в `ToolDefinition` Pi через `defineTool`. Бизнес-логика не импортирует ничего из `@earendil-works/*`; это проверяется правилом линтера (`no-restricted-imports` везде, кроме `src/agents/pi/`).
 
 ### 2.1. `PiAgentRuntime.openSession`
 
@@ -103,7 +103,7 @@ const loader = new DefaultResourceLoader({
   agentsFilesOverride: spec.piResources.contextFiles ? undefined : () => ({ agentsFiles: [] }),
   extensionsOverride: spec.piResources.extensions ? undefined : (base) => ({ ...base, extensions: [] }),
   skillsOverride: spec.piResources.skills ? undefined : (base) => ({ skills: [], diagnostics: base.diagnostics }),
-  extensionFactories: [{ name: "sdlc-guard", factory: createGuardExtension(spec.guard) }],
+  extensionFactories: [{ name: "teo-guard", factory: createGuardExtension(spec.guard) }],
 });
 await loader.reload();
 
@@ -153,7 +153,7 @@ const fake = new FakeAgentRuntime({
     turn.tool("report_result", { summary: "Готово", evidence: [{ kind: "file", value: "artifacts/plan.md" }] }),
   ],
   "sessions/supervisor.jsonl": [
-    turn.tool("inspect_file", { path: ".sdlc/tasks/T-1/artifacts/plan.md" }),
+    turn.tool("inspect_file", { path: ".teo/tasks/T-1/artifacts/plan.md" }),
     turn.tool("transition_stage", (ctx) => ({ expectedStateVersion: ctx.stateVersion, to: "execute", reason: "ok" })),
   ],
 });
@@ -173,8 +173,8 @@ Inline-расширение Pi, подключается к каждой сес�
 type GuardConfig = {
   role: "agent" | "supervisor";
   projectRoot: string;
-  taskDir: string;                    // .sdlc/tasks/<KEY>
-  writableInsideSdlc: string[];       // для агента: [taskDir/artifacts]
+  taskDir: string;                    // .teo/tasks/<KEY>
+  writableInsideTeo: string[];       // для агента: [taskDir/artifacts]
   readableRoots: string[];            // для supervisor: [projectRoot]
   isReported: () => boolean;          // для агента: отчёт уже записан в этом prompt-цикле
 };
@@ -185,7 +185,7 @@ type GuardConfig = {
 | Роль | Tool | Правило |
 |---|---|---|
 | agent | любой, после отчёта | `{ block: true, reason: "Run already reported; end your turn.", terminate: true }` |
-| agent | `write`, `edit` | Путь нормализуется (`path.resolve(cwd, p)` + `fs.realpath` существующего префикса). Внутри `<projectRoot>/.sdlc/`, но не внутри `writableInsideSdlc` → block |
+| agent | `write`, `edit` | Путь нормализуется (`path.resolve(cwd, p)` + `fs.realpath` существующего префикса). Внутри `<projectRoot>/.teo/`, но не внутри `writableInsideTeo` → block |
 | agent | `bash` | Не блокируется. Подмена state обнаруживается по hash ([02-storage.md §7.5](02-storage.md#75-обнаружение-подмены-state)) |
 | supervisor | `read`, `grep`, `find`, `ls` | Путь после нормализации обязан быть внутри `readableRoots` |
 | supervisor | всё прочее встроенное | Не выдаётся вовсе (allowlist, §5.1) |
@@ -257,7 +257,7 @@ type AskUserOutput = { answer: string; selectedOption: string | null; responseRe
 
 | Tool | Параметры | Возвращает |
 |---|---|---|
-| `read_policy` | `hash?` | Текст Policy (текущей или снимка из `.sdlc/policies/`) и hash |
+| `read_policy` | `hash?` | Текст Policy (текущей или снимка из `.teo/policies/`) и hash |
 | `read_state` | — | `state.json` (с `redact`) |
 | `read_task_description` | — | `task.md` |
 | `list_artifacts` | — | Файлы `artifacts/`: путь, размер, mtime, sha256 |
@@ -265,7 +265,7 @@ type AskUserOutput = { answer: string; selectedOption: string | null; responseRe
 | `read_agent_result` | `runId?` (default — `currentRun`) | `runs/<runId>.json`: вход, отчёт, settle reason, ошибка, хвост последнего ответа |
 | `read_agent_transcript` | `runId?`, `tail?` (default 30 сообщений, max 200) | Сжатая лента сессии агента: текст ассистента, tool calls (имя + args preview) и их статус. Позволяет проверить, что агент *действительно* запускал тесты, а не только заявил об этом |
 | `read_recent_events` | `limit?` (default 20, max 200), `types?: string[]`, `sinceEventId?` | События журнала |
-| `inspect_git_status` | — | Ветка, HEAD sha, upstream и ahead/behind, список изменённых/неотслеживаемых файлов (без `.sdlc/`), наличие незавершённого merge/rebase |
+| `inspect_git_status` | — | Ветка, HEAD sha, upstream и ahead/behind, список изменённых/неотслеживаемых файлов (без `.teo/`), наличие незавершённого merge/rebase |
 | `inspect_git_commit` | `ref` | Существует ли, полный sha, subject, author, date, `--stat`, входит ли в текущую ветку (`merge-base --is-ancestor`) |
 | `inspect_git_diff` | `base?`, `head?`, `paths?`, `stat?: boolean` | Diff или stat, ≤ 200 KB |
 | `inspect_file` | `path`, `startLine?`, `endLine?` | Содержимое и sha256 файла внутри project root |
@@ -321,12 +321,12 @@ type ScheduleRecheckInput   = { expectedStateVersion: number; delayMinutes: numb
 
 Шаблоны живут в `src/agents/prompts/*.ts` как функции от данных. Ни один шаблон не содержит имён этапов, ролей или правил процесса — только подстановки из Policy и state.
 
-Язык — русский, как интерфейс и Policy. На русском всё, что читает модель: system prompt append, prompts, описания tools и их параметров, тексты результатов и ошибок tools, follow-up и служебные сообщения CLI. Латиницей остаются идентификаторы: имена tools и полей, коды ошибок, ссылки evidence, маркер `[sdlc:prompt …]`. Тексты Policy подставляются как есть.
+Язык — русский, как интерфейс и Policy. На русском всё, что читает модель: system prompt append, prompts, описания tools и их параметров, тексты результатов и ошибок tools, follow-up и служебные сообщения CLI. Латиницей остаются идентификаторы: имена tools и полей, коды ошибок, ссылки evidence, маркер `[teo:prompt …]`. Тексты Policy подставляются как есть.
 
 ### 7.1. System prompt append: дочерний агент
 
 ```text
-Ты дочерний агент в SDLC-процессе, которым управляет CLI `sdlc`.
+Ты дочерний агент процесса, которым управляет CLI `teo`.
 
 - Ты выполняешь только текущий этап. Менять этап ты не можешь: отдельный supervisor оценивает
   твою работу по условиям выхода из этапа и решает, что делать дальше.
@@ -337,14 +337,14 @@ type ScheduleRecheckInput   = { expectedStateVersion: number; delayMinutes: numb
   Не завершай ход обычным текстом.
 - Спрашивай пользователя через ask_user, когда решение действительно за ним. Не проси пользователя
   делать работу, которую можешь сделать сам.
-- Документы задачи лежат в {taskDir}. Внутри .sdlc писать можно только в {taskDir}/artifacts/.
-- Строки, начинающиеся с "[sdlc:prompt", — служебные маркеры. Не обращай на них внимания.
+- Документы задачи лежат в {taskDir}. Внутри .teo писать можно только в {taskDir}/artifacts/.
+- Строки, начинающиеся с "[teo:prompt", — служебные маркеры. Не обращай на них внимания.
 ```
 
 ### 7.2. Initial prompt агента
 
 ```text
-[sdlc:prompt id={promptId} kind=initial run={runId}]
+[teo:prompt id={promptId} kind=initial run={runId}]
 
 # Задача {key}: {title}
 
@@ -386,7 +386,7 @@ report_result и заполни externalWait. Supervisor может заплан
 ### 7.3. Continue и restart
 
 ```text
-[sdlc:prompt id={promptId} kind=continue run={runId}]
+[teo:prompt id={promptId} kind=continue run={runId}]
 
 Supervisor проверил твой предыдущий отчёт и пока не продвигает задачу.
 
@@ -411,7 +411,7 @@ Recovery (`kind = recovery`): continue-шаблон с сообщением CLI 
 Recheck (`kind = recheck`), в ту же сессию:
 
 ```text
-[sdlc:prompt id={promptId} kind=recheck run={runId}]
+[teo:prompt id={promptId} kind=recheck run={runId}]
 
 Перепроверка №{number} из {maxCount} на этапе «{stage.title}». Твой последний отчёт был
 {minutesSinceReport} мин назад.
@@ -427,7 +427,7 @@ report_result с externalWait. Когда закончишь, вызови repor
 ### 7.4. System prompt append: supervisor
 
 ```text
-Ты supervisor SDLC-процесса, которым управляет CLI `sdlc`. Политика процесса ниже — единственный
+Ты supervisor процесса, которым управляет CLI `teo`. Политика процесса ниже — единственный
 источник правды об этапах, переходах и правилах.
 
 - Отчёты дочерних агентов — заявления. Прежде чем на них опираться, проверь их инструментами
@@ -447,7 +447,7 @@ report_result с externalWait. Когда закончишь, вызови repor
 - Возможны только переходы, перечисленные в промпте цикла. Используй указанный там
   expectedStateVersion.
 - Конкретная обратная связь через continue_current_agent предпочтительнее перезапуска.
-- Строки, начинающиеся с "[sdlc:prompt", — служебные маркеры. Не обращай на них внимания.
+- Строки, начинающиеся с "[teo:prompt", — служебные маркеры. Не обращай на них внимания.
 
 ## Инструкции политики
 {supervisor.instructions}
@@ -463,7 +463,7 @@ report_result с externalWait. Когда закончишь, вызови repor
 ### 7.5. Evaluation prompt
 
 ```text
-[sdlc:prompt id={promptId} kind=evaluate cycle={cycle}]
+[teo:prompt id={promptId} kind=evaluate cycle={cycle}]
 
 # Цикл {cycle} · задача {key}: {title}
 expectedStateVersion: {version}
@@ -519,4 +519,4 @@ expectedStateVersion: {version}
 2. Строки проходят regex-набор известных форматов: `sk-…`, `ghp_…`/`github_pat_…`, `glpat-…`, `xox[abpr]-…`, `AKIA…`, JWT (`eyJ…\.eyJ…\.…`), PEM-блоки `-----BEGIN … PRIVATE KEY-----`, `Bearer <token>`, URL с `user:pass@`.
 3. Длина строк в событиях ограничена 16 KB (обрезка с пометкой).
 
-Переменные окружения CLI не читает и в `.sdlc` не пишет (раздел 24 исходной спецификации).
+Переменные окружения CLI не читает и в `.teo` не пишет (раздел 24 исходной спецификации).

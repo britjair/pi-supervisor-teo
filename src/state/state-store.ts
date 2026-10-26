@@ -20,7 +20,7 @@ import { EventJournal, fileStamp } from "./event-store.js";
 import { taskLayout, type ProjectLayout, type TaskLayout } from "./layout.js";
 import { describeZodIssues, taskStateSchema } from "./state-schema.js";
 
-/** Копия state.json, изменённого не процессом sdlc, и последний state, записанный sdlc до подмены. */
+/** Копия state.json, изменённого не процессом teo, и последний state, записанный teo до подмены. */
 const TAMPERED_SUFFIX = ".tampered-";
 const BEFORE_SUFFIX = ".before-";
 
@@ -316,7 +316,7 @@ export class TaskStore {
     const stamp = fileStamp(now);
     const copy = `${t.state}${TAMPERED_SUFFIX}${stamp}`;
     await writeFileAtomic(copy, bytes);
-    // Заблокированный state теряет фазу; для «восстановить» нужен последний state, записанный sdlc
+    // Заблокированный state теряет фазу; для «восстановить» нужен последний state, записанный teo
     await writeFileAtomic(`${t.state}${BEFORE_SUFFIX}${stamp}`, serialize(lastGood));
     this.deps.log?.(`${key}: state.json изменён извне, копия сохранена в ${copy}`);
 
@@ -326,7 +326,7 @@ export class TaskStore {
 
     const version = lastGood.version + 1;
     const { ctx, events } = this.transaction(key, version, lastGood.lastEventId);
-    const message = `state.json изменён не процессом sdlc; изменённая копия: ${path.basename(copy)}. Восстановление: sdlc recover ${key}`;
+    const message = `state.json изменён не процессом teo; изменённая копия: ${path.basename(copy)}. Восстановление: teo recover ${key}`;
     ctx.emit("task.blocked", "cli", { code: "STATE_TAMPERED", message, by: "cli" });
     const blocked = haltedState(structuredClone(lastGood), "blocked", { code: "STATE_TAMPERED", message, at: ctx.now });
     return this.write(key, this.finalize(blocked, version, ctx.now, events, lastGood.lastEventId), events);

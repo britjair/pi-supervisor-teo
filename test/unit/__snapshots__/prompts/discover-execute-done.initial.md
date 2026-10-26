@@ -1,4 +1,4 @@
-[sdlc:prompt id=01JB2XKQ8M3N4P5R6S7T8V9W01 kind=initial run=01JB2XKQ8M3N4P5R6S7T8V9W02]
+[teo:prompt id=01JB2XKQ8M3N4P5R6S7T8V9W01 kind=initial run=01JB2XKQ8M3N4P5R6S7T8V9W02]
 
 # Задача PAY-142: Оплата через СБП
 
@@ -20,7 +20,7 @@ Supervisor продвинет задачу, только когда одно и�
 # Предыдущие результаты агентов по задаче (сначала новые, до 5)
 Нет.
 
-# Артефакты задачи (.sdlc/tasks/PAY-142/artifacts)
+# Артефакты задачи (.teo/tasks/PAY-142/artifacts)
 Пусто.
 
 Когда закончишь, вызови report_result. Если продолжить невозможно, вызови report_blocker.

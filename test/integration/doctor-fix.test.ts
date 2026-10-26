@@ -1,4 +1,4 @@
-// sdlc doctor --fix (05-cli-ui.md §7): каждое исправление хранилища, подтверждения, опасные случаи.
+// teo doctor --fix (05-cli-ui.md §7): каждое исправление хранилища, подтверждения, опасные случаи.
 
 import { existsSync, readFileSync } from "node:fs";
 import { appendFile, readFile, rm, writeFile } from "node:fs/promises";
@@ -67,11 +67,11 @@ describe("doctor --fix", () => {
     expect(out).toContain("Исправления:");
     for (const line of [
       "✓ Снять протухший lock",
-      "✓ Создать .sdlc/.gitignore",
+      "✓ Создать .teo/.gitignore",
       "✓ Удалить осиротевшие временные файлы (1)",
       "✓ Починить журнал T-1: обрезать оборванную запись",
       "✓ Починить журнал T-2: дописать outbox (1)",
-      "✓ Перестроить .sdlc/index.json",
+      "✓ Перестроить .teo/index.json",
     ]) expect(out).toContain(line);
     expect(out).toContain("После исправлений: проблем не найдено.");
     expect(code).toBe(0);
@@ -95,8 +95,8 @@ describe("doctor --fix", () => {
     const human = new ScriptedHumanIO([{ confirm: false }, { confirm: true }]);
     const { out } = await doctorFix(sb, human);
     expect(human.remaining).toBe(0);
-    expect(out).toContain("– Создать .sdlc/.gitignore — пропущено");
-    expect(out).toContain("✓ Перестроить .sdlc/index.json");
+    expect(out).toContain("– Создать .teo/.gitignore — пропущено");
+    expect(out).toContain("✓ Перестроить .teo/index.json");
     expect(existsSync(layout.gitignore)).toBe(false);
   });
 
@@ -108,14 +108,14 @@ describe("doctor --fix", () => {
 
     const auto = await doctorFix(sb);
     expect(auto.out).toContain("– Снять lock другого хоста");
-    expect(auto.out).toContain("– Перестроить .sdlc/index.json — lock проекта не снят");
+    expect(auto.out).toContain("– Перестроить .teo/index.json — lock проекта не снят");
     expect(existsSync(layout.lock)).toBe(true);
 
     const human = new ScriptedHumanIO([{ confirm: true }, { confirm: true }]);
     const { out, code } = await doctorFix(sb, human);
     expect(human.output.join("\n")).toContain("Это нельзя проверить автоматически.");
     expect(out).toContain("✓ Снять lock другого хоста");
-    expect(out).toContain("✓ Перестроить .sdlc/index.json");
+    expect(out).toContain("✓ Перестроить .teo/index.json");
     expect(existsSync(layout.lock)).toBe(false);
     expect(code).toBe(0);
   });
@@ -132,7 +132,7 @@ describe("doctor --fix", () => {
     }).acquire({ command: "resume", taskKey: "T-1" });
     try {
       const { out } = await doctorFix(sb);
-      expect(out).toContain("– Перестроить .sdlc/index.json — Проект занят живым процессом");
+      expect(out).toContain("– Перестроить .teo/index.json — Проект занят живым процессом");
       expect(existsSync(layoutOf(sb).index)).toBe(false);
     } finally {
       await held.release();

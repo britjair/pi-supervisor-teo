@@ -9,7 +9,7 @@ import type { HumanRequest } from "../../domain/task-state.js";
 import { UserAbortError } from "../../errors/errors.js";
 import { resolveWithin } from "../../util/paths.js";
 import { sha256File } from "../evidence-refs.js";
-import type { SdlcToolDefinition, ToolResult } from "../runtime.js";
+import type { TeoToolDefinition, ToolResult } from "../runtime.js";
 import type { EngineCore } from "../../workflow/context.js";
 
 const text = z.string().refine((s) => s.trim().length > 0, "строка не может быть пустой");
@@ -86,11 +86,11 @@ async function writeReport(core: EngineCore, sessionFile: string, report: AgentR
   return { content: "Отчёт записан. Supervisor проверит его независимо. Заверши ход.", terminate: true };
 }
 
-export function childTools(core: EngineCore, agent: AgentDef, sessionFile: string): SdlcToolDefinition[] {
+export function childTools(core: EngineCore, agent: AgentDef, sessionFile: string): TeoToolDefinition[] {
   const projectRoot = core.store.layout.projectRoot;
   const now = () => core.clock.now().toISOString();
 
-  const reportResult: SdlcToolDefinition<typeof reportResultSchema> = {
+  const reportResult: TeoToolDefinition<typeof reportResultSchema> = {
     name: "report_result",
     description:
       "Завершить ход отчётом о работе этапа. Отчёт — заявление: supervisor проверит его по git, файлам и транскрипту. После вызова заверши ход.",
@@ -115,7 +115,7 @@ export function childTools(core: EngineCore, agent: AgentDef, sessionFile: strin
     },
   };
 
-  const reportBlocker: SdlcToolDefinition<typeof reportBlockerSchema> = {
+  const reportBlocker: TeoToolDefinition<typeof reportBlockerSchema> = {
     name: "report_blocker",
     description:
       "Завершить ход сообщением, что продолжить этап невозможно. requiresHuman — подсказка supervisor-у: вопрос человеку задаёт он.",
@@ -123,7 +123,7 @@ export function childTools(core: EngineCore, agent: AgentDef, sessionFile: strin
     execute: (input) => writeReport(core, sessionFile, { kind: "blocker", at: now(), data: input as ReportBlockerInput }),
   };
 
-  const askUser: SdlcToolDefinition<typeof askUserSchema> = {
+  const askUser: TeoToolDefinition<typeof askUserSchema> = {
     name: "ask_user",
     description:
       "Задать вопрос пользователю и дождаться ответа. Ответ записывается в журнал задачи (human.responded) и возвращается с responseRef.",
@@ -180,7 +180,7 @@ export function childTools(core: EngineCore, agent: AgentDef, sessionFile: strin
         }
         throw err;
       });
-      if (!answer) return toolError("INTERRUPTED", "вопрос прерван остановкой sdlc", true);
+      if (!answer) return toolError("INTERRUPTED", "вопрос прерван остановкой teo", true);
       let responseId = "";
       await core.store.tasks.commit(core.key, (s, c) => {
         responseId = c.emit("human.responded", "human", {
@@ -196,8 +196,8 @@ export function childTools(core: EngineCore, agent: AgentDef, sessionFile: strin
     },
   };
 
-  const tools: SdlcToolDefinition[] = [reportResult as SdlcToolDefinition, reportBlocker as SdlcToolDefinition];
-  if (agent.askUser) tools.push(askUser as SdlcToolDefinition);
+  const tools: TeoToolDefinition[] = [reportResult as TeoToolDefinition, reportBlocker as TeoToolDefinition];
+  if (agent.askUser) tools.push(askUser as TeoToolDefinition);
   return tools;
 }
 

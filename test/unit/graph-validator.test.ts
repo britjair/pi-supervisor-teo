@@ -5,7 +5,7 @@ import { parsePolicyBytes } from "../../src/policy/policy-loader.js";
 /** Policy из описания графа: «a>b,c; b>d; d!» (! — терминальный). Все этапы обслуживает агент w. */
 function policyFromGraph(graph: string, opts: { body?: string; extraAgents?: string[] } = {}): string {
   const stages = graph.split(";").map((s) => s.trim());
-  const lines = ["---", "schema: sdlc/v1", "workflow:", `  initialStage: ${stages[0]?.split(/[>!]/)[0]}`, "  stages:"];
+  const lines = ["---", "schema: teo/v1", "workflow:", `  initialStage: ${stages[0]?.split(/[>!]/)[0]}`, "  stages:"];
   for (const s of stages) {
     if (s.endsWith("!")) {
       lines.push(`    ${s.slice(0, -1)}:`, "      title: T", "      terminal: true");

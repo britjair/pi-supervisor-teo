@@ -26,7 +26,7 @@ export class GitInspector {
       this.run(["rev-parse", "--abbrev-ref", "HEAD"]),
       this.run(["rev-parse", "HEAD"]),
       this.run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]),
-      this.run(["status", "--porcelain=v1", "--", ".", ":(exclude).sdlc"]),
+      this.run(["status", "--porcelain=v1", "--", ".", ":(exclude).teo"]),
       this.run(["rev-parse", "--git-dir"]),
     ]);
     let aheadBehind: { ahead: number; behind: number } | null = null;
@@ -76,7 +76,7 @@ export class GitInspector {
     if (opts.stat) args.push("--stat");
     if (opts.base) args.push(opts.base);
     if (opts.head) args.push(opts.head);
-    args.push("--", ...(opts.paths?.length ? opts.paths : ["."]), ":(exclude).sdlc");
+    args.push("--", ...(opts.paths?.length ? opts.paths : ["."]), ":(exclude).teo");
     const r = await this.run(args);
     return { ok: r.code === 0, text: r.code === 0 ? r.stdout : r.stderr };
   }
