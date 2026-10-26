@@ -89,7 +89,9 @@ describe("расширение Pi", () => {
       const ours = (p: string) => p.startsWith(repoRoot);
       expect(result.errors.filter((e) => ours(e.path))).toEqual([]);
       expect((result.warnings ?? []).filter((w) => ours(w.path))).toEqual([]);
-      expect(result.extensions.some((e) => ours(e.path) && e.commands.has("teo"))).toBe(true);
+      const extension = result.extensions.find((e) => ours(e.path) && e.commands.has("teo"));
+      expect(extension).toBeDefined();
+      expect([...extension!.tools.keys()].sort()).toEqual(["report_blocker", "report_result"]);
     } finally {
       session.dispose();
     }

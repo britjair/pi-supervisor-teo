@@ -42,7 +42,7 @@ export type EventPayloads = {
    */
   "human.responded": { requestId: string | null; answer: string; selectedOption: string | null; channel?: "chat" };
   "session.bound": { sessionId: string; sessionFile: string | null };
-  "session.unbound": { sessionId: string; reason: "stop" | "lock_lost" | "other_session" };
+  "session.unbound": { sessionId: string; reason: "stop" | "finished" | "lock_lost" | "other_session" };
   "stage.transitioned": {
     from: string;
     to: string;

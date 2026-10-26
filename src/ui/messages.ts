@@ -209,7 +209,7 @@ export const msg = {
       "  /teo stop            отвязать задачу от сессии; продолжить: /teo resume KEY или teo resume KEY",
       "  /teo status [KEY]    состояние задач проекта или одной задачи",
       "  /teo history [KEY]   задачи проекта или журнал задачи",
-      "Скоро: проверка supervisor-ом в конце хода, /teo next, pause, recover.",
+      "Supervisor проверяет результат в конце каждого хода. Скоро: /teo next, pause, recover.",
     ].join("\n"),
     planned: (sub: string) => `/teo ${sub} появится на следующих этапах. Сейчас задачу ведёт команда teo в терминале.`,
     unknown: (sub: string) => `Неизвестная подкоманда /teo ${sub}. Справка: /teo help`,
@@ -229,6 +229,19 @@ export const msg = {
     modelMissing: (model: string, agent: string) => `teo: модель ${model} роли «${agent}» не найдена в Pi — остаётся текущая модель.`,
     modelUnavailable: (model: string, agent: string) => `teo: модель ${model} роли «${agent}» недоступна без авторизации — остаётся текущая модель.`,
     status: (key: string, stage: string, agent: string, cycle: number) => `teo: ${key} · ${stage} · ${agent} · цикл ${cycle}`,
+    supervisorChecking: (key: string, cycle: number) => `teo: ${key} · supervisor проверяет · цикл ${cycle}`,
+    waitingHuman: (key: string) => `teo: ${key} · ожидается ответ пользователя`,
+    waitingUntil: (key: string, dueAt: string) => `teo: ${key} · ожидание до ${dueAt}`,
+    questionDeferred: "Вопрос supervisor-а остался открытым. Продолжение будет доступно через /teo resume после восстановления диалога.",
+    continueAgent: (message: string) => `[teo] Supervisor проверил ход и вернул этап на доработку.\n\n${message}`,
+    restartAgent: (reason: string, message: string) => `[teo] Supervisor начал этап заново.\nПричина: ${reason}\n\n${message}`,
+    transition: (key: string, stage: string, agent: string, reason: string, handoff: string | null, role: string) =>
+      `[teo] ${key}: предыдущая роль завершена. Переход к этапу «${stage}».\nПричина: ${reason}\n` +
+      `Новая роль — «${agent}». Передача: ${handoff?.trim() || "нет"}.\n\n${role}`,
+    recheckScheduled: (waitingFor: string, dueAt: string) => `[teo] Supervisor запланировал перепроверку до ${dueAt}: ${waitingFor}`,
+    terminal: (key: string, stage: string) => `[teo] Задача ${key} завершена на этапе «${stage}».`,
+    cancelled: (key: string, reason: string) => `[teo] Задача ${key} отменена. ${reason}`,
+    blocked: (key: string, reason: string) => `[teo] Задача ${key} заблокирована. ${reason}`,
   },
 
   policyErrorTitle: "Ошибка конфигурации процесса",
@@ -766,7 +779,7 @@ export function eventSummary(e: TaskEvent): string {
     case "session.bound":
       return `ведётся в сессии Pi ${e.payload.sessionId.slice(0, 8)}`;
     case "session.unbound":
-      return `отвязана от сессии Pi (${e.payload.reason === "stop" ? "/teo stop" : e.payload.reason === "lock_lost" ? "lock потерян" : "другая сессия"})`;
+      return `отвязана от сессии Pi (${e.payload.reason === "stop" ? "/teo stop" : e.payload.reason === "finished" ? "задача завершена" : e.payload.reason === "lock_lost" ? "lock потерян" : "другая сессия"})`;
     case "wait.scheduled":
       return `ожидание ${e.payload.number}/${e.payload.maxCount} до ${e.payload.dueAt}: ${clip(e.payload.waitingFor)}`;
     case "wait.finished":

@@ -14,7 +14,7 @@ import type { EngineCore } from "../../workflow/context.js";
 
 const text = z.string().refine((s) => s.trim().length > 0, "строка не может быть пустой");
 
-const reportResultSchema = z.object({
+export const reportResultSchema = z.object({
   summary: text.describe("Что сделано на этапе: только то, что действительно сделано и проверено"),
   evidence: z
     .array(z.object({ kind: text, value: text, description: z.string().optional() }))
@@ -34,7 +34,7 @@ const reportResultSchema = z.object({
     .describe("Работа сделана, но этап ждёт внешнего события. Supervisor может запланировать перепроверку"),
 });
 
-const reportBlockerSchema = z.object({
+export const reportBlockerSchema = z.object({
   summary: text,
   details: text,
   requiresHuman: z.boolean().describe("Нужно решение человека. Вопрос задаст supervisor"),

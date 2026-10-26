@@ -1,6 +1,6 @@
 // Фейк ExtensionAPI и контекстов Pi для integration-тестов ExtensionHost: только то, чем пользуется хост.
 
-import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { HostPi } from "../../src/extension/host.js";
 
 export type FakeModel = { provider: string; id: string };
@@ -10,6 +10,7 @@ export const ALL_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls",
 
 export class FakePi {
   readonly handlers = new Map<string, Array<(event: unknown, ctx: unknown) => unknown>>();
+  readonly tools = new Map<string, ToolDefinition>();
   readonly entries: Array<{ type: "custom"; customType: string; data: unknown }> = [];
   readonly sent: Array<{ message: { customType: string; content: unknown }; options: unknown }> = [];
   activeTools = ["read", "bash", "edit", "write", "web_search"];
@@ -23,13 +24,14 @@ export class FakePi {
       this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]);
       return () => undefined;
     }) as HostPi["on"],
+    registerTool: ((tool: ToolDefinition) => void this.tools.set(tool.name, tool)) as HostPi["registerTool"],
     appendEntry: ((customType: string, data?: unknown) => void this.entries.push({ type: "custom", customType, data })) as HostPi["appendEntry"],
     sendMessage: ((message: { customType: string; content: unknown }, options?: unknown) => void this.sent.push({ message, options })) as HostPi["sendMessage"],
     getActiveTools: () => [...this.activeTools],
     setActiveTools: (names: string[]) => {
-      this.activeTools = names.filter((n) => ALL_TOOLS.includes(n));
+      this.activeTools = names.filter((n) => ALL_TOOLS.includes(n) || this.tools.has(n));
     },
-    getAllTools: (() => ALL_TOOLS.map((name) => ({ name }))) as unknown as HostPi["getAllTools"],
+    getAllTools: (() => [...ALL_TOOLS, ...this.tools.keys()].map((name) => ({ name }))) as unknown as HostPi["getAllTools"],
     setModel: (async (model: FakeModel) => {
       this.setModelCalls.push(model);
       if (this.setModelResult) this.model = model;
@@ -38,6 +40,13 @@ export class FakePi {
     getThinkingLevel: (() => this.thinking) as HostPi["getThinkingLevel"],
     setThinkingLevel: ((level: string) => void (this.thinking = level)) as HostPi["setThinkingLevel"],
   };
+
+  /** Выполнить зарегистрированный tool так, как его вызывает Pi. */
+  async callTool(name: string, input: unknown): Promise<unknown> {
+    const tool = this.tools.get(name);
+    if (!tool) throw new Error(`tool ${name} не зарегистрирован`);
+    return tool.execute(`call-${name}`, input, new AbortController().signal, () => undefined, {} as never);
+  }
 
   /** Вызвать обработчики события по порядку, как Pi; результат последнего непустого. */
   async emit(event: string, payload: unknown, ctx: unknown): Promise<unknown> {
@@ -89,10 +98,26 @@ export function fakeCtx(
   return ctx as unknown as ExtensionCommandContext & { fakeUi: FakeUi };
 }
 
-export type FakeAgentStartEvent = { type: "before_agent_start"; systemPrompt: string; systemPromptOptions: { sections: Record<string, string> } };
+export type FakeAgentStartEvent = {
+  type: "before_agent_start";
+  messageType: "user";
+  prompt: string;
+  systemPrompt: string;
+  systemPromptOptions: { sections: Record<string, string> };
+};
 
-export function agentStartEvent(): FakeAgentStartEvent {
-  return { type: "before_agent_start", systemPrompt: "", systemPromptOptions: { sections: {} } };
+export function agentStartEvent(prompt = "Продолжай работу этапа"): FakeAgentStartEvent {
+  return { type: "before_agent_start", messageType: "user", prompt, systemPrompt: "", systemPromptOptions: { sections: {} } };
+}
+
+export function settleEvent(messages: unknown[], outcome: "completed" | "aborted" | "error" = "completed") {
+  return {
+    type: "agent_before_settle",
+    entries: [],
+    continue: false,
+    outcome,
+    context: { contextEntries: [], contextMessages: [], llmMessages: messages, pendingMessages: [], canContinue: false },
+  } as const;
 }
 
 export type { ExtensionContext };

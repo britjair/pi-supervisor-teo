@@ -66,7 +66,7 @@ describe("ExtensionHost: привязка задачи к сессии", () => {
       expect(section).toContain("- → Выполнение:");
       expect(section).toContain("Внутри .teo писать можно только в .teo/tasks/T-1/artifacts/");
       // DEFAULT_AGENT_TOOLS из зарегистрированных; инструмент вне Policy выключен
-      expect(pi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+      expect(pi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls", "report_result", "report_blocker"]);
       // Модель default — модель пользователя не трогаем (D38)
       expect(pi.setModelCalls).toEqual([]);
     } finally {
