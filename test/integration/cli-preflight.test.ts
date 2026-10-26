@@ -27,7 +27,6 @@ const COMMANDS: string[][] = [
 const fixture = (name: string) => readFileSync(path.join(invalidDir, `${name}.md`));
 
 const BAD_POLICIES: Array<{ name: string; setup: (sb: Sandbox) => Promise<void> | void; policy?: Uint8Array | string }> = [
-  { name: "нет файла", setup: () => undefined },
   { name: "каталог вместо файла", setup: (sb) => mkdir(sb.policyPath).then(() => undefined) },
   { name: "пустой файл", setup: () => undefined, policy: "" },
   { name: "без front matter", setup: () => undefined, policy: fixture("POLICY_NO_FRONT_MATTER--no-opening") },
@@ -62,9 +61,10 @@ describe("невалидная Policy → exit 2, .teo не создан", () =>
 });
 
 describe("сообщение об ошибке Policy", () => {
-  it("нет ни одного процесса: каталог, причина и следующий шаг", async () => {
+  it("своих процессов нет: new без --goal — каталог, причина и следующий шаг", async () => {
     const sb = await sandbox();
-    const r = await runCli(sb, ["status"]);
+    const r = await runCli(sb, ["new", "T-1", "--title", "t", "--description", "d"]);
+    expect(r.code).toBe(2);
     expect(r.stdout).toBe("");
     expect(r.stderr).toBe(
       [
@@ -75,9 +75,24 @@ describe("сообщение об ошибке Policy", () => {
         "",
         "Ничего не запущено, .teo не изменён.",
         "Добавьте процесс в ~/.pi/teo и повторите команду, например: cp examples/processes/dev.md ~/.pi/teo/dev.md",
+        'Или поставьте задачу целью без процесса: teo new KEY --goal "…"',
         "",
       ].join("\n"),
     );
+    expect(await teoCreatedAnywhere(sb)).toBe(false);
+  });
+
+  it("своих процессов нет: остальные команды работают в режиме цели (D35)", async () => {
+    const sb = await sandbox();
+    expect((await runCli(sb, ["status"])).code).toBe(0);
+    const menu = await runCli(sb, []);
+    expect(menu.code).toBe(0);
+    expect(menu.stdout).toContain("Процессы: goal (встроенный: teo new --goal)");
+    expect((await runCli(sb, ["resume", "T-1"])).code).toBe(4);
+    const doctor = await runCli(sb, ["doctor"]);
+    expect(doctor.stdout).toContain("· Своих процессов нет: в ~/.pi/teo нет ни одного файла <процесс>.md. Доступен режим цели (teo new --goal)");
+    expect(doctor.stdout).toMatch(/^✓ Процесс goal \(встроенный, режим цели\)/m);
+    expect(await teoCreatedAnywhere(sb)).toBe(false);
   });
 
   it("все ошибки с путями и номерами строк, затем предупреждения", async () => {
@@ -122,7 +137,9 @@ describe("teo doctor", () => {
     expect(r.stdout).toContain("Policy невалидна (16 проблем):");
     const located = r.stdout.split("\n").filter((l) => /^\s+✗ \S+ \(строка \d+\)$/.test(l));
     expect(located).toHaveLength(16);
-    expect(r.stdout).toContain("Итог: 1 ошибка, 0 предупреждений.");
+    // Вторая ошибка — модель встроенного процесса цели без авторизации Pi в песочнице
+    expect(r.stdout).toContain("✗ Модель default недоступна или не авторизована");
+    expect(r.stdout).toContain("Итог: 2 ошибки, 0 предупреждений.");
   });
 
   it("предупреждения Policy не превращаются в ошибки Policy; Pi проверяется отдельно", async () => {

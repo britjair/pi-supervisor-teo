@@ -10,14 +10,24 @@ import { runCli, runProcess, sandbox } from "../helpers/tmp.js";
 const enabled = process.env.TEO_E2E === "1";
 
 describe.skipIf(!enabled)("Pi e2e", () => {
-  // Две Policy с разными этапами, агентами и файлами — один и тот же dist/cli.js (критерии 3 и 17)
+  // Две Policy с разными этапами, агентами и файлами — один и тот же dist/cli.js (критерии 3 и 17);
+  // режим цели — встроенный процесс без своей Policy (G1, D35)
+  const TASK = ["--title", "Тест", "--description", "Выполни этапы Policy"];
   it.each([
-    { fixture: "discover-execute-done", terminal: "done", file: "NOTES.md" },
-    { fixture: "sketch-deliver-shipped", terminal: "shipped", file: "HELLO.md" },
-  ])("$fixture: агент создаёт $file, supervisor подтверждает коммит", async ({ fixture, terminal, file }) => {
+    { fixture: "discover-execute-done", terminal: "done", file: "NOTES.md", args: TASK, transitions: 2 },
+    { fixture: "sketch-deliver-shipped", terminal: "shipped", file: "HELLO.md", args: TASK, transitions: 2 },
+    {
+      fixture: "goal",
+      terminal: "reached",
+      file: "GOAL.md",
+      args: ["--goal", "Создай в корне проекта файл GOAL.md с одной строкой «готово» и закоммить его в текущую ветку."],
+      transitions: 1,
+    },
+  ])("$fixture: агент создаёт $file, supervisor подтверждает коммит", async ({ fixture, terminal, file, args, transitions }) => {
     const auth = process.env.PI_CODING_AGENT_DIR;
     if (!auth) throw new Error("Для e2e укажите PI_CODING_AGENT_DIR на временную копию каталога Pi.");
-    const policy = await readFile(path.join(validDir, `${fixture}.md`));
+    // Для режима цели свой процесс в песочнице тоже есть: --goal выбирает встроенный явно
+    const policy = await readFile(path.join(validDir, `${fixture === "goal" ? "discover-execute-done" : fixture}.md`));
     const sb = await sandbox(policy);
     await runProcess("git", ["config", "user.name", "TEO Test"], sb.project);
     await runProcess("git", ["config", "user.email", "teo-test@example.invalid"], sb.project);
@@ -25,7 +35,7 @@ describe.skipIf(!enabled)("Pi e2e", () => {
     expect(doctor.code).toBe(0);
     expect(doctor.stdout).toContain("✓ Pi SDK 1.4.0 загружается");
     const result = await new Promise<{ code: number | null }>((resolve) => {
-      execFile(process.execPath, [cliPath, "new", "T-1", "--title", "Тест", "--description", "Выполни этапы Policy", "--plain"],
+      execFile(process.execPath, [cliPath, "new", "T-1", ...args, "--plain"],
         { cwd: sb.project, timeout: 80_000, killSignal: "SIGKILL", maxBuffer: 4_000_000, env: { ...process.env, HOME: sb.home, PI_CODING_AGENT_DIR: auth, NO_COLOR: "1" } },
         (error) => resolve({ code: error ? (typeof error.code === "number" ? error.code : null) : 0 }),
       );
@@ -43,7 +53,7 @@ describe.skipIf(!enabled)("Pi e2e", () => {
     expect(result.code, `phase=${state.phase}, status=${state.status}, events=${events.slice(-8).map((e) => e.type).join(",")}, sessions=${inspected.join(",")}`).toBe(0);
     expect(state).toMatchObject({ stage: terminal, status: "terminal" });
     expect(await readFile(path.join(sb.project, file), "utf8")).toBeTruthy();
-    expect(events.filter((e) => e.type === "stage.transitioned")).toHaveLength(2);
+    expect(events.filter((e) => e.type === "stage.transitioned")).toHaveLength(transitions);
     expect(events.some((e) => e.type === "supervisor.protocol_error")).toBe(false);
   }, 100_000);
 

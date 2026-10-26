@@ -82,6 +82,10 @@ export class ProjectStore {
     return this.deps.processes.find((p) => p.name === name) ?? null;
   }
 
+  noProcessesError(): PolicyError {
+    return new PolicyError("POLICY_NO_PROCESSES", this.deps.processesDir, []);
+  }
+
   /** Policy процесса задачи. Нет файла или Policy невалидна → PolicyError (exit 2). */
   policyOf(name: string): LoadedPolicy {
     const entry = this.process(name);
@@ -99,7 +103,8 @@ export class ProjectStore {
   /** Policy процесса сменилась (policy gate): названия этапов в index берутся из новой. */
   setPolicy(processName: string, policy: LoadedPolicy): void {
     const rest = this.deps.processes.filter((p) => p.name !== processName);
-    const updated: ProcessEntry = { name: processName, path: policy.path, ok: true, policy };
+    const builtin = this.process(processName)?.builtin ?? false;
+    const updated: ProcessEntry = { name: processName, path: policy.path, builtin, ok: true, policy };
     this.deps.processes = [...rest, updated].sort((a, b) => a.name.localeCompare(b.name));
   }
 

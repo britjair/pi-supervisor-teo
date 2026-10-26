@@ -7,6 +7,12 @@ import { FakeClock } from "../helpers/fake-clock.js";
 
 const DOWN = "\u001B[B";
 const settle = (ms = 20) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** Ждать кадр с текстом: под нагрузкой Ink подключает ввод не сразу. */
+async function waitFor(check: () => boolean, timeoutMs = 2_000): Promise<void> {
+  for (const start = Date.now(); !check(); await settle(10)) {
+    if (Date.now() - start > timeoutMs) throw new Error("кадр не дождались");
+  }
+}
 // eslint-disable-next-line no-control-regex
 const plain = (s: string) => s.replace(/\u001B\[[0-9;?]*[A-Za-z]/g, "");
 
@@ -70,11 +76,17 @@ describe("InkHumanIO", () => {
       allowFreeText: false,
       attachments: [],
     });
-    await settle();
+    await waitFor(() => stdout.text().includes("Ответ сохраняется в журнал задачи дословно."));
     expect(stdout.text()).toContain("Какой стенд использовать?");
-    expect(stdout.text()).toContain("Ответ сохраняется в журнал задачи дословно.");
-    stdin.write(DOWN);
-    await settle();
+    // Стрелку повторяем, пока выбор не переместится: первое нажатие может прийти до подписки на ввод
+    const cursor = () => stdout.frames.map(plain).filter((f) => f.includes("❯ ft")).at(-1) ?? "";
+    let pressed = 0;
+    await waitFor(() => {
+      if (cursor().includes("❯ ft2")) return true;
+      // Новое нажатие — только когда прежнее точно не дошло (кадр не изменился за 100 мс)
+      if (pressed++ % 10 === 0) stdin.write(DOWN);
+      return false;
+    });
     stdin.write("\r");
     expect(await answer).toEqual({ answer: "ft2", selectedOption: "ft2" });
   });

@@ -46,7 +46,7 @@ describe("несколько процессов", () => {
 
     // Меню и сводка: процесс и этап из Policy своего процесса
     const menu = await runCli(sb, []);
-    expect(menu.stdout).toContain("Процессы: delivery (3 этапа), dev (3 этапа)");
+    expect(menu.stdout).toContain("Процессы: delivery (3 этапа), dev (3 этапа), goal (встроенный: teo new --goal)");
     expect(menu.stdout).toMatch(/A-1\s+dev\s+Изучение задачи/);
     expect(menu.stdout).toMatch(/B-1\s+delivery\s+Набросок/);
     const status = await runCli(sb, ["status", "B-1"]);
@@ -142,13 +142,13 @@ describe("несколько процессов", () => {
 describe("ProcessCatalog", () => {
   it("нет каталога — нет процессов; *.md с допустимым именем — процессы по алфавиту", async () => {
     const sb = await sandbox();
-    expect(await new ProcessCatalog(path.join(sb.home, "nope")).loadAll()).toEqual([]);
+    expect(await new ProcessCatalog(path.join(sb.home, "nope"), null).loadAll()).toEqual([]);
     await writeFile(path.join(sb.processesDir, "zeta.md"), DED);
     await writeFile(path.join(sb.processesDir, "alpha.md"), "");
     await writeFile(path.join(sb.processesDir, "notes.txt"), "x");
     await writeFile(path.join(sb.processesDir, ".hidden.md"), DED);
     await writeFile(path.join(sb.processesDir, "UPPER.md"), DED);
-    const catalog = new ProcessCatalog(sb.processesDir);
+    const catalog = new ProcessCatalog(sb.processesDir, null);
     expect(await catalog.scan()).toEqual({ names: ["alpha", "zeta"], badNames: ["UPPER.md"] });
     const all = await catalog.loadAll();
     expect(all.map((p) => [p.name, p.ok])).toEqual([["alpha", false], ["zeta", true]]);

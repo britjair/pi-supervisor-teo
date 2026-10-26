@@ -93,18 +93,22 @@ export type Preflight = { project: ProjectRoot; processes: ProcessEntry[] };
 
 /**
  * Общий старт команд (05-cli-ui.md §1): project root (только чтение), затем preflight всех процессов.
- * Нет ни одного валидного процесса → PolicyError (exit 2) до любой записи в .teo. Невалидный процесс
- * при наличии валидных не мешает (D41): его задачи помечаются, а команда над такой задачей
- * получает ошибку процесса через store.policyOf().
+ * - Своих процессов нет — не ошибка: доступен встроенный режим цели (D35). Ошибку даёт только
+ *   `teo new` без `--goal` (chooseProcess).
+ * - Свои процессы есть, но ни один не валиден → PolicyError (exit 2) до любой записи в .teo:
+ *   сломанный файл процесса — ошибка конфигурации, её нельзя пропустить молча.
+ * - Невалидный процесс при наличии валидных не мешает (D41): его задачи помечаются,
+ *   а команда над такой задачей получает ошибку процесса через store.policyOf().
  */
 export async function preflight(ctx: AppContext): Promise<Preflight> {
   const project = await detectProjectRoot(ctx.cwd, ctx.exec);
   const processes = await ctx.processes.loadAll();
-  if (processes.length === 0) throw ctx.processes.noProcessesError();
-  if (!processes.some((p) => p.ok)) {
-    const first = processes[0];
-    if (first && !first.ok) throw first.error;
-  }
+  const own = processes.filter((p) => !p.builtin);
+  const broken = own.find((p) => !p.ok);
+  if (broken && !broken.ok && !own.some((p) => p.ok)) throw broken.error;
+  // Встроенный процесс невалиден — это ошибка сборки пакета, а не конфигурации пользователя
+  const builtinBroken = processes.find((p) => p.builtin && !p.ok);
+  if (builtinBroken && !builtinBroken.ok) throw builtinBroken.error;
   return { project, processes };
 }
 

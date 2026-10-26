@@ -206,7 +206,7 @@ export const msg = {
   nothingStarted: "Ничего не запущено, .teo не изменён.",
   createPolicy: (p: string) => `Создайте ${p} и повторите команду. Автоматически он не создаётся.`,
   createProcess: (dir: string) =>
-    `Добавьте процесс в ${dir} и повторите команду, например: cp examples/processes/dev.md ${dir}/dev.md`,
+    `Добавьте процесс в ${dir} и повторите команду, например: cp examples/processes/dev.md ${dir}/dev.md\nИли поставьте задачу целью без процесса: teo new KEY --goal "…"`,
   fixPolicy: (p: string) => `Исправьте ${p} и повторите команду. Проверка: teo doctor`,
   warningsTitle: (n: number) => `Предупреждения (${n}):`,
 
@@ -241,6 +241,7 @@ export const msg = {
     optReason: "причина отмены",
     optSetStage: "перевести задачу на этап",
     optProcess: "процесс задачи: имя файла ~/.pi/teo/<процесс>.md",
+    optGoal: "режим цели: задача без процесса, текст цели — её описание",
     optAcceptPolicy: "принять изменённую Policy",
     optFix: "предложить исправления по одному",
     helpTitles: {
@@ -278,6 +279,7 @@ export const msg = {
     project: (root: string) => `Проект: ${root}`,
     processes: (items: string[]) => `Процессы: ${items.join(", ")}`,
     processOk: (name: string, stages: number) => `${name} (${plurals.stages(stages)})`,
+    processBuiltin: (name: string) => `${name} (встроенный: teo new --goal)`,
     processBroken: (name: string) => `${name} (⚠ ошибка Policy)`,
     processProblem: (name: string, problem: "missing" | "invalid") =>
       `⚠ процесс «${name}» ${problem === "missing" ? "не найден" : "с ошибками"}`,
@@ -299,6 +301,7 @@ export const msg = {
     nonInteractiveHint: [
       "Команды:",
       "  teo new KEY --title T --description-file F   создать задачу",
+      "  teo new KEY --goal \"цель\"                    задача-цель без процесса",
       "  teo status [KEY]                             состояние",
       "  teo history [KEY]                            задачи и журнал событий",
       "  teo cancel KEY --reason R                    отменить задачу",
@@ -359,6 +362,11 @@ export const msg = {
     process: "Процесс",
     chooseProcess: "По какому процессу вести задачу?",
     processChoice: (name: string, initial: string, stages: number) => `${name} — начальный этап «${initial}», ${plurals.stages(stages)}`,
+    goal: "Цель",
+    goalEmpty: "Цель не может быть пустой.",
+    goalMode: "Режим цели: задача без процесса, supervisor проверит достижение цели.",
+    goalChoice: "Цель — без процесса: сформулируйте цель, supervisor проверит её достижение",
+    goalConflict: "--goal задаёт и процесс, и описание: не указывайте вместе с ним --process, --description или --description-file.",
     processRequired: (names: string[]) =>
       `Процессов несколько, без терминала укажите --process: ${names.join(", ")}.\nПример: teo new PAY-142 --process ${names[0] ?? "dev"} --title "…" --description-file task.txt`,
     projectRoot: (root: string, git: string | null) => `Проект: ${root}${git ? `   (${git})` : ""}`,
@@ -508,7 +516,8 @@ export const msg = {
       `Процесс ${name} · ${p} · ${shortHash(hash)} · ${plurals.stages(stages)}, ${plurals.agents(agents)}`,
     processWarnings: (name: string, n: number) => `Процесс ${name}: ${plurals.warnings(n)}`,
     processFailed: (name: string, p: string) => `Процесс ${name} · ${p}`,
-    processesNone: (dir: string) => `Процессов нет: в ${dir} нет ни одного файла <процесс>.md`,
+    processesNone: (dir: string) => `Своих процессов нет: в ${dir} нет ни одного файла <процесс>.md. Доступен режим цели (teo new --goal)`,
+    processBuiltin: (name: string, p: string) => `Процесс ${name} (встроенный, режим цели) · ${p}`,
     processBadNames: (n: number) => `Файлы с недопустимым именем процесса пропущены (${n}): нужны строчные латинские буквы, цифры, «-» и «_»`,
     models: (refs: string) => `Модели в Policy: ${refs}`,
     modelsUsage: (ref: string, users: string[]) => `${ref} (${users.join(", ")})`,

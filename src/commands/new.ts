@@ -12,10 +12,20 @@ import { holderOf } from "../state/lock-manager.js";
 import type { ProjectStore } from "../state/project-store.js";
 import { findCaseInsensitive, taskKeyProblem } from "../state/task-key.js";
 import type { HumanIO } from "../ui/human-io.js";
+import { GOAL_PROCESS } from "../policy/process-catalog.js";
 import { msg } from "../ui/messages.js";
 import { executeTask } from "./run-task.js";
 
-export type NewOptions = { key?: string; title?: string; descriptionFile?: string; description?: string; process?: string; noRun?: boolean };
+export type NewOptions = {
+  key?: string;
+  title?: string;
+  descriptionFile?: string;
+  description?: string;
+  process?: string;
+  /** Режим цели (D35): текст цели становится описанием задачи, процесс — встроенный goal */
+  goal?: string;
+  noRun?: boolean;
+};
 export type NewTaskInput = { key: string; title: string; description: string; process: string };
 
 export const TITLE_MAX = 200;
@@ -41,7 +51,20 @@ async function readStream(stream: NodeJS.ReadableStream): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** Название задачи по цели: первая непустая строка, не длиннее TITLE_MAX. */
+export function goalTitle(goal: string): string {
+  const line = goal.split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+  const chars = [...line];
+  return chars.length > TITLE_MAX ? chars.slice(0, TITLE_MAX - 1).join("") + "…" : line;
+}
+
 async function descriptionFromFlags(ctx: AppContext, opts: NewOptions): Promise<string | undefined> {
+  if (opts.goal !== undefined) {
+    if (opts.description !== undefined || opts.descriptionFile !== undefined || opts.process !== undefined) {
+      throw new UsageError(msg.newTask.goalConflict);
+    }
+    return opts.goal;
+  }
   if (opts.descriptionFile !== undefined && opts.description !== undefined) throw new UsageError(msg.newTask.descriptionConflict);
   if (opts.descriptionFile !== undefined) {
     const file = path.resolve(ctx.cwd, opts.descriptionFile);
@@ -57,37 +80,56 @@ async function descriptionFromFlags(ctx: AppContext, opts: NewOptions): Promise<
 
 /** Без терминала: все поля из флагов. */
 async function inputFromFlags(ctx: AppContext, store: ProjectStore, opts: NewOptions): Promise<NewTaskInput> {
+  // Процесс — первым: отсутствие процессов — ошибка конфигурации (exit 2), а не ввода
+  const process = await chooseProcess(null, store, opts);
   const description = (await descriptionFromFlags(ctx, opts))?.trim();
+  if (opts.goal !== undefined && !description) throw new UsageError(msg.newTask.goalEmpty);
+  const title = (opts.title ?? (opts.goal !== undefined && description ? goalTitle(description) : "")).trim();
   const missing = [
     opts.key === undefined ? "KEY" : null,
-    opts.title === undefined ? "--title" : null,
+    title === "" && opts.title === undefined ? "--title" : null,
     description === undefined ? "--description-file или --description" : null,
   ].filter((x): x is string => x !== null);
   if (missing.length > 0) throw new UsageError(msg.newTask.missingFields(missing));
   const key = opts.key ?? "";
-  const title = (opts.title ?? "").trim();
-  const problem = keyError(key, await store.tasks.listKeys()) ?? titleError(title) ?? (description ? null : msg.newTask.descriptionEmpty);
+  const problem =
+    keyError(key, await store.tasks.listKeys()) ??
+    titleError(title) ??
+    (description ? null : opts.goal !== undefined ? msg.newTask.goalEmpty : msg.newTask.descriptionEmpty);
   if (problem) throw new UsageError(problem);
-  return { key, title, description: description ?? "", process: await chooseProcess(null, store, opts.process) };
+  return { key, title, description: description ?? "", process };
 }
 
 /**
- * Процесс новой задачи (D32): флаг --process; единственный валидный процесс выбирается сам;
- * несколько — меню в терминале, без терминала флаг обязателен. Невалидный процесс → PolicyError (exit 2).
+ * Процесс новой задачи (D32, D35):
+ * - `--goal` → встроенный процесс цели, `--process` → указанный процесс (невалидный → PolicyError, exit 2);
+ * - без терминала: единственный свой валидный процесс выбирается сам, несколько — нужен флаг,
+ *   своих нет — ошибка конфигурации с подсказкой про `--goal`;
+ * - в терминале: меню из своих процессов и режима цели; своих нет — сразу режим цели.
  */
-export async function chooseProcess(human: HumanIO | null, store: ProjectStore, flag: string | undefined): Promise<string> {
-  if (flag !== undefined) {
-    store.policyOf(flag);
-    return flag;
+export async function chooseProcess(human: HumanIO | null, store: ProjectStore, opts: Pick<NewOptions, "process" | "goal">): Promise<string> {
+  if (opts.goal !== undefined) {
+    store.policyOf(GOAL_PROCESS);
+    return GOAL_PROCESS;
   }
-  const valid = store.processes.flatMap((p) => (p.ok ? [p] : []));
-  const [only] = valid;
-  if (valid.length === 1 && only) return only.name;
-  if (!human) throw new UsageError(msg.newTask.processRequired(valid.map((p) => p.name)));
-  return human.select(
-    msg.newTask.chooseProcess,
-    valid.map((p) => ({ label: msg.newTask.processChoice(p.name, initialStageTitle(p.policy), Object.keys(p.policy.spec.workflow.stages).length), value: p.name })),
-  );
+  if (opts.process !== undefined) {
+    store.policyOf(opts.process);
+    return opts.process;
+  }
+  const own = store.processes.flatMap((p) => (p.ok && !p.builtin ? [p] : []));
+  const goal = store.process(GOAL_PROCESS);
+  if (!human) {
+    const [only] = own;
+    if (own.length === 1 && only) return only.name;
+    if (own.length === 0) throw store.noProcessesError();
+    throw new UsageError(msg.newTask.processRequired(own.map((p) => p.name)));
+  }
+  if (own.length === 0 && goal?.ok) return GOAL_PROCESS;
+  if (own.length === 0) throw store.noProcessesError();
+  return human.select(msg.newTask.chooseProcess, [
+    ...own.map((p) => ({ label: msg.newTask.processChoice(p.name, initialStageTitle(p.policy), Object.keys(p.policy.spec.workflow.stages).length), value: p.name })),
+    ...(goal?.ok ? [{ label: msg.newTask.goalChoice, value: GOAL_PROCESS }] : []),
+  ]);
 }
 
 /** Проект занят живым процессом — сообщить до заполнения формы. */
@@ -116,12 +158,14 @@ export async function newTaskForm(
 
   const flagDescription = (await descriptionFromFlags(ctx, opts))?.trim();
   let key = opts.key !== undefined && keyError(opts.key, existing) === null ? opts.key : undefined;
-  let title = opts.title !== undefined && titleError(opts.title) === null ? opts.title.trim() : undefined;
+  const flagTitle = opts.title ?? (opts.goal !== undefined && flagDescription ? goalTitle(flagDescription) : undefined);
+  let title = flagTitle !== undefined && titleError(flagTitle) === null ? flagTitle.trim() : undefined;
   let description = flagDescription ? flagDescription : undefined;
   if (opts.key !== undefined && key === undefined) human.print(ctx.style.yellow(`  ${keyError(opts.key, existing)}`));
 
-  const process = await chooseProcess(human, store, opts.process);
-  human.print(`${msg.newTask.process}: ${process}`);
+  const process = await chooseProcess(human, store, opts);
+  const isGoal = process === GOAL_PROCESS;
+  human.print(isGoal ? msg.newTask.goalMode : `${msg.newTask.process}: ${process}`);
   const initial = initialStageLine(store.policyOf(process));
   for (let editing = false; ; editing = true) {
     if (key === undefined || editing) {
@@ -129,18 +173,24 @@ export async function newTaskForm(
     } else {
       human.print(`${msg.newTask.key}: ${key}`);
     }
+    // В режиме цели сначала сама цель: название по умолчанию — её первая строка
+    const askDescription = async () => {
+      if (description !== undefined && !editing) return;
+      const previous: string | undefined = description;
+      const typed = await human.multiline(isGoal ? msg.newTask.goal : msg.newTask.description, {
+        validate: (d) => (d === "" && previous === undefined ? (isGoal ? msg.newTask.goalEmpty : msg.newTask.descriptionEmpty) : null),
+      });
+      description = typed === "" && previous !== undefined ? previous : typed;
+    };
+    if (isGoal) await askDescription();
     if (title === undefined || editing) {
-      title = await human.input(msg.newTask.taskTitle, { ...(title !== undefined ? { initial: title } : {}), validate: titleError });
+      const suggested = title ?? (isGoal && description ? goalTitle(description) : undefined);
+      title = await human.input(msg.newTask.taskTitle, { ...(suggested !== undefined ? { initial: suggested } : {}), validate: titleError });
     } else {
       human.print(`${msg.newTask.taskTitle}: ${title}`);
     }
-    if (description === undefined || editing) {
-      const previous: string | undefined = description;
-      const typed = await human.multiline(msg.newTask.description, {
-        validate: (d) => (d === "" && previous === undefined ? msg.newTask.descriptionEmpty : null),
-      });
-      description = typed === "" && previous !== undefined ? previous : typed;
-    }
+    if (!isGoal) await askDescription();
+    if (description === undefined) continue;
     human.print(["", initial, ""].join("\n"));
     const action = await human.select(msg.newTask.summary(key, title), [
       { label: msg.newTask.create, value: "create" as const },

@@ -109,10 +109,11 @@ export async function main(argv: readonly string[]): Promise<number> {
     .addOption(new Option("--description-file <file>", msg.cli.optDescriptionFile).conflicts("description"))
     .option("--description <text>", msg.cli.optDescription)
     .option("--process <name>", msg.cli.optProcess)
+    .option("--goal <text>", msg.cli.optGoal)
     .option("--no-run", "создать задачу без запуска workflow")
     .action(
       run((ctx, cmd) => {
-        const o = cmd.opts<{ title?: string; descriptionFile?: string; description?: string; process?: string; run?: boolean }>();
+        const o = cmd.opts<{ title?: string; descriptionFile?: string; description?: string; process?: string; goal?: string; run?: boolean }>();
         const key = cmd.args[0];
         return runNew(ctx, {
           ...(key !== undefined ? { key } : {}),
@@ -120,6 +121,7 @@ export async function main(argv: readonly string[]): Promise<number> {
           ...(o.descriptionFile !== undefined ? { descriptionFile: o.descriptionFile } : {}),
           ...(o.description !== undefined ? { description: o.description } : {}),
           ...(o.process !== undefined ? { process: o.process } : {}),
+          ...(o.goal !== undefined ? { goal: o.goal } : {}),
           ...(o.run === false ? { noRun: true } : {}),
         });
       }),

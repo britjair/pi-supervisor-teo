@@ -8,7 +8,8 @@
     "teo": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "processes"
   ],
   "engines": {
     "node": ">=22.19.0"

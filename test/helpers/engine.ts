@@ -80,7 +80,7 @@ export class Harness {
   newStore(faults: FaultInjector = noFaults): ProjectStore {
     return new ProjectStore({
       projectRoot: this.sb.project,
-      processes: [{ name: this.sb.process, path: this.sb.policyPath, ok: true, policy: parsePolicyBytes(Buffer.from(this.policyText), this.sb.policyPath) }],
+      processes: [{ name: this.sb.process, path: this.sb.policyPath, builtin: false, ok: true, policy: parsePolicyBytes(Buffer.from(this.policyText), this.sb.policyPath) }],
       processesDir: this.sb.processesDir,
       clock: this.clock,
       ids: this.ids,

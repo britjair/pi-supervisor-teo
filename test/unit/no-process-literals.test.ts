@@ -1,5 +1,5 @@
 // Критерий приёмки 2: в исходниках нет названий этапов, агентов и графа конкретного процесса
-// (06-implementation.md §4.4). Идентификаторы и названия берутся из всех valid-фикстур и examples/processes/.
+// (06-implementation.md §4.4). Идентификаторы и названия берутся из всех valid-фикстур, examples/processes/ и встроенных processes/.
 
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -11,7 +11,7 @@ import { examplesDir, repoRoot, validDir } from "../helpers/paths.js";
 
 function processVocabulary(): { ids: Set<string>; titles: Set<string> } {
   const md = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => path.join(dir, f));
-  const files = [...md(validDir), ...md(examplesDir)];
+  const files = [...md(validDir), ...md(examplesDir), ...md(path.join(repoRoot, "processes"))];
   const ids = new Set<string>();
   const titles = new Set<string>();
   for (const file of files) {

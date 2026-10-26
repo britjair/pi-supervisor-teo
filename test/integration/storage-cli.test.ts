@@ -80,6 +80,7 @@ describe("создание задач и меню", () => {
     const sb = await withTasks("PAY-142", "AUTH-77");
     const human = new ScriptedHumanIO([
       { select: "Создать новую задачу" },
+      { select: "test — начальный этап" },
       { input: "CRM-12" },
       { input: "Экспорт заказов в CSV" },
       { multiline: "Выгрузка заказов\nза период" },
@@ -101,13 +102,14 @@ describe("создание задач и меню", () => {
 
   it("меню: дубликат ключа без учёта регистра отклоняется в форме", async () => {
     const sb = await withTasks("PAY-142");
-    const human = new ScriptedHumanIO([{ select: "Создать новую задачу" }, { input: "pay-142" }]);
+    const human = new ScriptedHumanIO([{ select: "Создать новую задачу" }, { select: "test — начальный этап" }, { input: "pay-142" }]);
     await expect(runInteractive(testContext(sb, { human }))).rejects.toThrow(/уже есть в проекте/);
   });
 
   it("пустой проект: сразу форма, «Отмена» возвращает в меню, .teo не создан", async () => {
     const sb = await sandbox(POLICY);
     const human = new ScriptedHumanIO([
+      { select: "test — начальный этап" },
       { input: "T-1" },
       { input: "t" },
       { multiline: "d" },

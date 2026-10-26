@@ -27,7 +27,7 @@ export async function testStore(
   const clock = opts.clock ?? new FakeClock();
   const store = new ProjectStore({
     projectRoot: root,
-    processes: [{ name: TEST_PROCESS, path: testPolicy().path, ok: true, policy: testPolicy() }],
+    processes: [{ name: TEST_PROCESS, path: testPolicy().path, builtin: false, ok: true, policy: testPolicy() }],
     processesDir: validDir,
     clock,
     ids: createIdGenerator(clock),

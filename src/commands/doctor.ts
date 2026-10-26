@@ -74,8 +74,9 @@ export async function collectDoctorChecks(
   const processes = await ctx.processes.loadAll();
   const { badNames } = await ctx.processes.scan();
   const dirDisplay = tildify(ctx.processes.dir, ctx.homeDir);
-  if (processes.length === 0) {
-    checks.push({ id: "processes", level: "error", title: msg.doctor.processesNone(dirDisplay), details: [msg.createProcess(dirDisplay)] });
+  // Своих процессов нет — не ошибка: остаётся встроенный режим цели (D35)
+  if (!processes.some((p) => !p.builtin)) {
+    checks.push({ id: "processes", level: "info", title: msg.doctor.processesNone(dirDisplay), details: [msg.createProcess(dirDisplay)] });
   }
   for (const p of processes) {
     const display = tildify(p.path, ctx.homeDir);
@@ -87,7 +88,9 @@ export async function collectDoctorChecks(
     checks.push({
       id: `process:${p.name}`,
       level: "ok",
-      title: msg.doctor.processOk(p.name, display, policy.hash, Object.keys(policy.spec.workflow.stages).length, Object.keys(policy.spec.agents).length),
+      title: p.builtin
+        ? msg.doctor.processBuiltin(p.name, display)
+        : msg.doctor.processOk(p.name, display, policy.hash, Object.keys(policy.spec.workflow.stages).length, Object.keys(policy.spec.agents).length),
       details: [],
     });
     if (policy.warnings.length > 0) {

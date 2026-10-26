@@ -26,7 +26,7 @@ type MenuChoice = { kind: "create" } | { kind: "task"; key: string } | { kind: "
 
 function header(ctx: AppContext, store: ProjectStore): string {
   const processes = store.processes.map((p) =>
-    p.ok ? msg.menu.processOk(p.name, Object.keys(p.policy.spec.workflow.stages).length) : msg.menu.processBroken(p.name),
+    !p.ok ? msg.menu.processBroken(p.name) : p.builtin ? msg.menu.processBuiltin(p.name) : msg.menu.processOk(p.name, Object.keys(p.policy.spec.workflow.stages).length),
   );
   return [
     ctx.style.bold(msg.menu.title),
