@@ -29,7 +29,7 @@
 
 | Назначение | Пакет | Версия | Примечание |
 |---|---|---|---|
-| Pi SDK | `@earendil-works/pi-coding-agent` | `1.4.0` (точно, = версия `pi` из Homebrew) | Только в `src/agents/pi/` |
+| Pi SDK | `@earendil-works/pi-coding-agent` | `1.4.0` (точно, = версия `pi` из Homebrew) | Только в `src/agents/pi/` и `src/extension/`; в пакете — `peerDependencies: "*"` + `devDependencies` (07 §4.6) |
 | Схемы tools для Pi | `typebox` | как у Pi | Pi описывает параметры tools через typebox |
 | CLI | `commander` | `^15` | |
 | TUI | `ink`, `react` | `^8`, `^19` | |
@@ -49,7 +49,7 @@
 
 ### 1.4. Правила линтера
 
-- `no-restricted-imports`: `@earendil-works/*` разрешён только в `src/agents/pi/**`.
+- `no-restricted-imports`: `@earendil-works/*` разрешён только в `src/agents/pi/**` и `src/extension/**`; Ink-интерфейс (`ui/ink/`, `ui/interactive-human-io`) — только в `cli.ts`.
 - `no-restricted-imports`: `ink`, `react` разрешены только в `src/ui/**`.
 - `no-restricted-syntax`: запрет `process.exit` вне `src/cli.ts`.
 - `no-restricted-properties`: запрет `Date.now` и `new Date()` вне `src/util/clock.ts` (время инжектируется, тесты детерминированы).

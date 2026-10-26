@@ -86,7 +86,7 @@ export type SessionFileInfo = {
 };
 ```
 
-`TeoToolDefinition` — собственный тип teo (имя, описание, JSON Schema параметров через `typebox`, `execute`). `PiAgentRuntime` конвертирует его в `ToolDefinition` Pi через `defineTool`. Бизнес-логика не импортирует ничего из `@earendil-works/*`; это проверяется правилом линтера (`no-restricted-imports` везде, кроме `src/agents/pi/`).
+`TeoToolDefinition` — собственный тип teo (имя, описание, JSON Schema параметров через `typebox`, `execute`). `PiAgentRuntime` конвертирует его в `ToolDefinition` Pi через `defineTool`. Бизнес-логика не импортирует ничего из `@earendil-works/*`; это проверяется правилом линтера (`no-restricted-imports` везде, кроме `src/agents/pi/` и слоя расширения `src/extension/`).
 
 ### 2.1. `PiAgentRuntime.openSession`
 

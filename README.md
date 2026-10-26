@@ -4,7 +4,9 @@ CLI `teo` ведёт задачи по процессам из `~/.pi/teo/<пр�
 
 ## Статус
 
-Готовы этапы M1–M6 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)), R1 (переименование), R2 (несколько процессов) и G1 (режим цели) из [docs/07-extension-mode.md §6](docs/07-extension-mode.md#6-этапы-реализации):
+Готовы этапы M1–M6 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)), R1 (переименование), R2 (несколько процессов), G1 (режим цели) и X1 (пакет расширения Pi) из [docs/07-extension-mode.md §6](docs/07-extension-mode.md#6-этапы-реализации):
+
+- расширение Pi (X1): тот же пакет — пакет Pi с `dist/extension.js`; в сессии Pi работают `/teo status`, `/teo history` и `/teo help`. Supervisor в сессии Pi — следующие этапы X2–X4;
 
 - режим цели (G1): `teo new KEY --goal "…"` или пункт «Цель» в форме — задача без своего процесса по встроенному шаблону `processes/goal.md`; работает и без единого файла в `~/.pi/teo/`;
 
@@ -69,7 +71,8 @@ scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi/teo && cp examples/processes/*.md /tmp
 - `test/unit/prompts.test.ts` — snapshot-ы промптов в `test/unit/__snapshots__/prompts/` на двух Policy; после осознанного изменения шаблона обновляются через `scripts/dev.sh npx vitest run -u test/unit/prompts.test.ts`.
 - `test/integration/processes.test.ts` — несколько процессов: выбор, `--process`, невалидный и удалённый процесс, `doctor` по процессам.
 - `test/integration/goal-mode.test.ts` — режим цели: встроенный шаблон, `--goal`, форма, движок на шаблоне цели.
-- Полный обычный прогон G1: 46 файлов, 474 теста; реальный Pi e2e: 5 тестов (две Policy, режим цели, guard, прототип режима расширения). Один e2e-файл: `scripts/e2e.sh test/e2e/pi-smoke.test.ts`.
+- `test/integration/extension-load.test.ts` — пакет как расширение: настоящий загрузчик Pi, манифест без предупреждений, `/teo` через сессию SDK и через `pi -e <пакет> -p`.
+- Полный обычный прогон X1: 47 файлов, 479 тестов; реальный Pi e2e: 5 тестов (две Policy, режим цели, guard, прототип режима расширения). Один e2e-файл: `scripts/e2e.sh test/e2e/pi-smoke.test.ts`.
 - `scripts/e2e.sh` монтирует только нужные файлы из `~/.pi/agent` **read-only**, копирует их во временный контейнер и удаляет список установленных пакетов/расширений из копии настроек. Исходный `~/.pi` не изменяется. Для другого источника: `TEO_E2E_AGENT_DIR=<каталог> scripts/e2e.sh`. E2E делает реальные вызовы модели и может стоить денег.
 
 ## Установка на хост
@@ -85,7 +88,16 @@ cd ~/code/pi-supervisor-teo
 npm ci && npm run build && npm link   # команда teo появляется в /opt/homebrew/bin
 ```
 
-`npm link` ссылается на рабочую копию: после `git pull` достаточно `npm ci && npm run build`. Удалить: `npm unlink -g pi-supervisor-teo`.
+`npm link` ссылается на рабочую копию: после `git pull` достаточно `npm ci && npm run build`. Удалить: `npm unlink -g pi-supervisor-teo`. Pi SDK — dev-зависимость пакета (для расширения Pi подставляет свой), поэтому `npm ci` — без `--omit=dev`.
+
+Расширение Pi из того же каталога (после `npm run build`):
+
+```bash
+pi -e ~/code/pi-supervisor-teo        # попробовать в одной сессии, без установки
+pi install ~/code/pi-supervisor-teo   # подключить насовсем (пишет в ~/.pi/agent/settings.json)
+```
+
+В сессии: `/teo status`, `/teo history KEY`, `/teo help`.
 
 Затем:
 

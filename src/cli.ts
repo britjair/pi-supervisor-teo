@@ -3,6 +3,7 @@
 
 import { Command, CommanderError, Option } from "commander";
 import { createAppContext, type AppContext } from "./app.js";
+import { createInteractiveHumanIO } from "./ui/interactive-human-io.js";
 import { runCancel } from "./commands/cancel.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runHistory } from "./commands/history.js";
@@ -31,6 +32,7 @@ function contextFor(cmd: Command): AppContext {
     color: colorEnabled({ isTTY: tty, env: process.env, flag: g.color !== false }),
     plain: g.plain === true,
     verbose: g.verbose === true,
+    human: (io) => createInteractiveHumanIO(io.stdin, io.stdout, io.stderr, io.clock, io.style, io.plain),
   });
 }
 

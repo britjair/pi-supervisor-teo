@@ -199,6 +199,19 @@ export function policyErrorHeadline(code: PolicyErrorCode, problems: number): st
 }
 
 export const msg = {
+  extension: {
+    description: "Pi Supervisor TEO: задачи по процессам ~/.pi/teo с проверкой supervisor-а",
+    help: [
+      "Pi Supervisor TEO",
+      "  /teo status [KEY]    состояние задач проекта или одной задачи",
+      "  /teo history [KEY]   задачи проекта или журнал задачи",
+      "Скоро: /teo start, resume, goal, next, pause, stop, recover — supervisor в этой сессии.",
+      "Сейчас вести задачу можно командой teo в терминале.",
+    ].join("\n"),
+    planned: (sub: string) => `/teo ${sub} появится на следующих этапах. Сейчас задачу ведёт команда teo в терминале.`,
+    unknown: (sub: string) => `Неизвестная подкоманда /teo ${sub}. Справка: /teo help`,
+  },
+
   policyErrorTitle: "Ошибка конфигурации процесса",
   file: (p: string) => `Файл: ${p}`,
   processesDir: (p: string) => `Каталог процессов: ${p}`,

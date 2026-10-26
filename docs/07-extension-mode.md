@@ -1,6 +1,6 @@
 # 07. pi-supervisor-teo: переименование, несколько процессов, режим расширения Pi
 
-Статус: **согласовано, реализация идёт по этапам §6**. Готовы R1, R2 и G1.
+Статус: **согласовано, реализация идёт по этапам §6**. Готовы R1, R2, G1 и X1.
 
 Проект переименовывается в `pi-supervisor-teo`: применение шире, чем SDLC. Кроме CLI появляется второй способ работы — по образцу [tintinweb/pi-supervisor](https://github.com/tintinweb/pi-supervisor): supervisor подключается к обычной сессии Pi, и пользователь работает в привычном TUI Pi.
 
@@ -71,7 +71,7 @@
 
 Ещё не проверено:
 - **S5.** `ctx.ui.setEditorText("/teo next")` после решения о переходе и запуск команды по Enter. Нужна ручная проверка в TUI.
-- **S6.** Загрузка расширения из локального пакета при Pi SDK в `peerDependencies` (§4.6).
+- ~~**S6.**~~ проверено на X1 (§4.6).
 
 ### 4.2. Как это выглядит для пользователя
 
@@ -136,11 +136,10 @@ $ pi                                   # обычная сессия Pi в пр�
 - Один npm-пакет `pi-supervisor-teo`:
   - `bin: { teo: dist/cli.js }`;
   - `pi: { extensions: ["./dist/extension.js"] }`.
-- Расширение собирается отдельной точкой входа tsup. `@earendil-works/*` и `typebox` — внешние, их подставляет Pi.
-- По документации Pi (`docs/packages.md`) Pi SDK у расширения должен быть в `peerDependencies: "*"`, без своей копии. CLI же сейчас держит закреплённую копию 1.4.0. Предложение:
-  - SDK в `peerDependencies` + `devDependencies` (1.4.0) для сборки и тестов;
-  - CLI при `npm link` получает SDK как peer: npm ставит peer-зависимости автоматически.
-- **S6** проверяет, что Pi при загрузке локального пакета не ругается на физическую копию SDK в `node_modules`. Если ругается — расширение выносится в отдельный каталог `extension/` со своим `package.json` без копии SDK.
+- Расширение собирается отдельной точкой входа tsup в самодостаточный `dist/extension.js`. `@earendil-works/*` и `typebox` — внешние, их подставляет Pi. Остальное (zod, yaml, ulid) вшито: локальный пакет Pi не устанавливает его зависимости. Ink и React в бандл не попадают — это проверяет тест и правило lint: Ink-интерфейс подключается только в `cli.ts`, а `app.ts` и `commands/` его не импортируют.
+- Pi SDK и `typebox` — в `peerDependencies: "*"` и в `devDependencies` (точная версия 1.4.0) для сборки, тестов и CLI. Поэтому `npm ci` для CLI — без `--omit=dev`.
+- **S6 проверен** (`test/integration/extension-load.test.ts`): с SDK в `dependencies` загрузчик Pi выдаёт предупреждение «Host-provided extension packages must be declared in peerDependencies…». С `peerDependencies` пакет грузится без ошибок и предупреждений и регистрирует `/teo`. Отдельный каталог `extension/` не нужен.
+- В print-режиме (`pi -p "/teo status"`) интерфейса нет: ответ `/teo` пишется в stderr, stdout Pi оставляет под ответ модели (`output-guard`).
 - Установка: `pi install ~/code/pi-supervisor-teo`. Для пробы без установки: `pi -e ~/code/pi-supervisor-teo`.
 
 ## 5. Режим цели (G1)

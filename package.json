@@ -3,9 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "description": "Supervisor процессов для Pi: ведёт задачи по процессам из ~/.pi/teo/<процесс>.md",
+  "keywords": [
+    "pi-package"
+  ],
   "type": "module",
   "bin": {
     "teo": "dist/cli.js"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/extension.js"
+    ]
   },
   "files": [
     "dist",
@@ -24,12 +32,10 @@
     "check": "npm run typecheck && npm run lint && npm run build && npm test"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.4.0",
     "@inkjs/ui": "2.0.0",
     "commander": "^15.0.0",
     "ink": "8.0.0",
     "react": "19.3.1",
-    "typebox": "1.3.27",
     "ulid": "^3.0.2",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
@@ -38,14 +44,20 @@
     "undici": "8.12.3"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.5",
     "@types/react": "19.3.0",
     "eslint": "^10.13.0",
     "ink-testing-library": "4.0.0",
     "tsup": "^9.0.0",
+    "typebox": "1.3.27",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.0",
     "vitest": "^5.0.5"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   }
 }

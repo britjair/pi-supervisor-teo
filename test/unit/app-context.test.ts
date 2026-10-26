@@ -1,6 +1,7 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { createAppContext } from "../../src/app.js";
+import { createAppContext, type HumanFactory } from "../../src/app.js";
+import { createInteractiveHumanIO } from "../../src/ui/interactive-human-io.js";
 import { InkHumanIO } from "../../src/ui/ink/ink-human-io.js";
 import { PlainHumanIO } from "../../src/ui/plain/plain-human-io.js";
 
@@ -10,13 +11,15 @@ function ttyStream(): PassThrough & { isTTY: boolean } {
   return stream;
 }
 
+const human: HumanFactory = (io) => createInteractiveHumanIO(io.stdin, io.stdout, io.stderr, io.clock, io.style, io.plain);
+
 describe("createAppContext", () => {
   it("выбирает Ink в TTY и PlainHumanIO с --plain", () => {
     const ink = createAppContext({
-      stdin: ttyStream(), stdout: ttyStream(), stderr: ttyStream(), color: false, plain: false, verbose: false,
+      stdin: ttyStream(), stdout: ttyStream(), stderr: ttyStream(), color: false, plain: false, verbose: false, human,
     });
     const plain = createAppContext({
-      stdin: ttyStream(), stdout: ttyStream(), stderr: ttyStream(), color: false, plain: true, verbose: false,
+      stdin: ttyStream(), stdout: ttyStream(), stderr: ttyStream(), color: false, plain: true, verbose: false, human,
     });
 
     expect(ink.interactive).toBe(true);

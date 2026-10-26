@@ -1,4 +1,6 @@
 // Composition root: собирает сервисы и общий контекст команд. Решений не принимает.
+// Ink сюда не импортируется: контекст нужен и расширению Pi, у которого свой интерфейс.
+// Интерактивный HumanIO передаёт вызывающий код (cli.ts) фабрикой AppOptions.human.
 
 import os from "node:os";
 import type { Readable, Writable } from "node:stream";
@@ -6,7 +8,6 @@ import { ProcessCatalog, defaultProcessesDir, type ProcessEntry } from "./policy
 import { detectProjectRoot, type ProjectRoot } from "./project/project-root.js";
 import { ProjectStore } from "./state/project-store.js";
 import type { HumanIO } from "./ui/human-io.js";
-import { createInteractiveHumanIO } from "./ui/interactive-human-io.js";
 import { createStyle, type Style } from "./ui/plain/style.js";
 import { systemClock, type Clock } from "./util/clock.js";
 import { execFileNoThrow, type Exec } from "./util/exec.js";
@@ -53,7 +54,11 @@ export type AppOptions = {
   color: boolean;
   plain: boolean;
   verbose: boolean;
+  /** Диалог с человеком в терминале; без фабрики — только неинтерактивный режим */
+  human?: (io: { stdin: Readable; stdout: Writable; stderr: Writable; clock: Clock; style: Style; plain: boolean }) => HumanIO;
 };
+
+export type HumanFactory = NonNullable<AppOptions["human"]>;
 
 export function createAppContext(o: AppOptions): AppContext {
   // os.homedir() учитывает HOME: так тесты подменяют каталог процессов ~/.pi/teo (01-policy.md §1.1)
@@ -71,7 +76,7 @@ export function createAppContext(o: AppOptions): AppContext {
     stdout: o.stdout,
     stderr: o.stderr,
     interactive,
-    human: interactive ? createInteractiveHumanIO(o.stdin, o.stdout, o.stderr, clock, style, o.plain) : null,
+    human: interactive && o.human ? o.human({ stdin: o.stdin, stdout: o.stdout, stderr: o.stderr, clock, style, plain: o.plain }) : null,
     verbose: o.verbose,
     style,
     clock,
