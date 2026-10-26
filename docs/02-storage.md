@@ -69,7 +69,8 @@ type TaskState = {
   // версия для optimistic concurrency
   version: number;               // +1 на каждую запись
 
-  // Policy
+  // Policy: процесс задачи ~/.pi/teo/<process>.md (D32) и hash версии, по которой она идёт
+  process: string;
   policyHash: `sha256:${string}`;
   policySchema: "teo/v1";
 
@@ -280,7 +281,7 @@ type TaskEvent = {
 
 | Тип | Меняет state | Payload | Новое? |
 |---|---|---|---|
-| `task.created` | да | `title, stage, policyHash, projectRoot` | |
+| `task.created` | да | `title, process, stage, policyHash, projectRoot` | |
 | `task.resumed` | нет | `fromStatus, phase, pid` | |
 | `task.cancelled` | да | `reason, humanResponseRef \| null, by` | |
 | `task.blocked` | да | `code, message, by: "supervisor" \| "cli"` | |
@@ -406,8 +407,9 @@ type ProjectIndex = {
   tasks: Array<{
     key: string;
     title: string;
+    process: string;
     stage: string;
-    stageTitle: string | null; // из Policy на момент записи; null, если этапа нет в Policy
+    stageTitle: string | null; // из Policy процесса на момент записи; null, если процесса или этапа нет
     status: TaskState["status"];
     phase: Phase;
     dueAt: string | null;      // wait.dueAt при phase = waiting

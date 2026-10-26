@@ -2,7 +2,6 @@
 // Каждый шаг при ошибке бросает PolicyError, дальше ничего не выполняется.
 
 import { readFile, stat } from "node:fs/promises";
-import path from "node:path";
 import { LineCounter, isMap, parseDocument } from "yaml";
 import { POLICY_SCHEMA_ID, type LoadedPolicy, type PolicyErrorCode, type PolicyIssue } from "../domain/policy.js";
 import { PolicyError } from "../errors/errors.js";
@@ -12,19 +11,6 @@ import { normalizePolicy } from "./normalize.js";
 import { hashPolicyBytes } from "./policy-hash.js";
 import { rawPolicySchema, stripExtensionKeys, structuralChecks, toSchemaProblems } from "./policy-schema.js";
 import { createLocator, formatPath } from "./yaml-locate.js";
-
-export function defaultPolicyPath(homeDir: string): string {
-  return path.join(homeDir, ".pi", "SDLC.md");
-}
-
-export class PolicyLoader {
-  constructor(readonly path: string) {}
-
-  /** Полный preflight. Policy перечитывается при каждом вызове: кэша нет. */
-  loadAndValidate(): Promise<LoadedPolicy> {
-    return loadPolicyFile(this.path);
-  }
-}
 
 const fail = (code: PolicyErrorCode, file: string, issues: PolicyIssue[] = [], cause?: unknown): never => {
   throw new PolicyError(code, file, issues, cause === undefined ? undefined : { cause });

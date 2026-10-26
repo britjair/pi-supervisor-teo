@@ -56,8 +56,8 @@ describe("создание задач и меню", () => {
     const menu = await runCli(sb, []);
     expect(menu.code).toBe(0);
     expect(menu.stdout).toContain("Задачи в работе: 2");
-    expect(menu.stdout).toMatch(/AUTH-77\s+Изучение задачи\s+○ ждёт запуска агента\s+Задача AUTH-77/);
-    expect(menu.stdout).toMatch(/PAY-142\s+Изучение задачи/);
+    expect(menu.stdout).toMatch(/AUTH-77\s+test\s+Изучение задачи\s+○ ждёт запуска агента\s+Задача AUTH-77/);
+    expect(menu.stdout).toMatch(/PAY-142\s+test\s+Изучение задачи/);
     expect(menu.stdout).toContain("teo new KEY --title T --description-file F");
     expect((await runCli(sb, ["status"])).stdout).toContain("Задачи в работе: 2");
     expect((await runCli(sb, ["history"])).stdout).toContain("Задачи проекта: 2");

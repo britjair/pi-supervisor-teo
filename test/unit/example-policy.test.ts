@@ -1,11 +1,11 @@
-// Реальный процесс пользователя (examples/SDLC.md) — опорная проверка загрузчика.
+// Реальный процесс пользователя (examples/processes/dev.md) — опорная проверка загрузчика.
 
 import { describe, expect, it } from "vitest";
 import { getAgent, getStage } from "../../src/domain/policy.js";
 import { loadPolicyFile } from "../../src/policy/policy-loader.js";
 import { examplePolicy } from "../helpers/paths.js";
 
-describe("examples/SDLC.md", async () => {
+describe("examples/processes/dev.md", async () => {
   const policy = await loadPolicyFile(examplePolicy);
   const { spec } = policy;
 

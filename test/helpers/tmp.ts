@@ -18,19 +18,30 @@ afterEach(async () => {
   for (const dir of created.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
-export type Sandbox = { root: string; home: string; project: string; policyPath: string };
+export type Sandbox = {
+  root: string;
+  home: string;
+  project: string;
+  /** HOME/.pi/teo — каталог процессов */
+  processesDir: string;
+  /** Процесс, в который записана переданная Policy */
+  process: string;
+  policyPath: string;
+};
 
-/** HOME и проект во временном каталоге. Policy кладётся в HOME/.pi/SDLC.md, если передана. */
-export async function sandbox(policy?: string | Uint8Array, opts: { git?: boolean } = {}): Promise<Sandbox> {
+/** HOME и проект во временном каталоге. Policy кладётся в HOME/.pi/teo/<process>.md, если передана. */
+export async function sandbox(policy?: string | Uint8Array, opts: { git?: boolean; process?: string } = {}): Promise<Sandbox> {
   const root = await tmpDir();
   const home = path.join(root, "home");
   const project = path.join(root, "project");
-  await mkdir(path.join(home, ".pi"), { recursive: true });
+  const processesDir = path.join(home, ".pi", "teo");
+  const processName = opts.process ?? "test";
+  await mkdir(processesDir, { recursive: true });
   await mkdir(project, { recursive: true });
-  const policyPath = path.join(home, ".pi", "SDLC.md");
+  const policyPath = path.join(processesDir, `${processName}.md`);
   if (policy !== undefined) await writeFile(policyPath, policy);
   if (opts.git !== false) await run("git", ["init", "-q"], project);
-  return { root, home, project, policyPath };
+  return { root, home, project, processesDir, process: processName, policyPath };
 }
 
 export type RunResult = { code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string };

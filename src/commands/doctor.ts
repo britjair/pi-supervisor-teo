@@ -7,8 +7,8 @@ import type { AgentRuntime } from "../agents/runtime.js";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { openProject, type AppContext } from "../app.js";
-import { agentList, type LoadedPolicy } from "../domain/policy.js";
-import { ExitCode, PolicyError } from "../errors/errors.js";
+import { agentList, type LoadedPolicy, type ThinkingLevel } from "../domain/policy.js";
+import { ExitCode } from "../errors/errors.js";
 import { detectProjectRoot } from "../project/project-root.js";
 import { GITIGNORE_CONTENT } from "../state/layout.js";
 import { holderOf } from "../state/lock-manager.js";
@@ -70,43 +70,43 @@ export async function collectDoctorChecks(
     details: [],
   });
 
-  // Policy
-  const display = tildify(ctx.policyLoader.path, ctx.homeDir);
-  let policy: LoadedPolicy | null = null;
-  try {
-    policy = await ctx.policyLoader.loadAndValidate();
+  // Процессы ~/.pi/teo/*.md: каждый — отдельная Policy со своим preflight (D32)
+  const processes = await ctx.processes.loadAll();
+  const { badNames } = await ctx.processes.scan();
+  const dirDisplay = tildify(ctx.processes.dir, ctx.homeDir);
+  if (processes.length === 0) {
+    checks.push({ id: "processes", level: "error", title: msg.doctor.processesNone(dirDisplay), details: [msg.createProcess(dirDisplay)] });
+  }
+  for (const p of processes) {
+    const display = tildify(p.path, ctx.homeDir);
+    if (!p.ok) {
+      checks.push({ id: `process:${p.name}`, level: "error", title: msg.doctor.processFailed(p.name, display), details: policyProblemLines(p.error, s, "") });
+      continue;
+    }
+    const policy = p.policy;
     checks.push({
-      id: "policy",
+      id: `process:${p.name}`,
       level: "ok",
-      title: msg.doctor.policyOk(
-        display,
-        policy.hash,
-        Object.keys(policy.spec.workflow.stages).length,
-        Object.keys(policy.spec.agents).length,
-      ),
+      title: msg.doctor.processOk(p.name, display, policy.hash, Object.keys(policy.spec.workflow.stages).length, Object.keys(policy.spec.agents).length),
       details: [],
     });
     if (policy.warnings.length > 0) {
       checks.push({
-        id: "policy.warnings",
+        id: `process:${p.name}.warnings`,
         level: "warning",
-        title: msg.doctor.policyWarnings(policy.warnings.length),
+        title: msg.doctor.processWarnings(p.name, policy.warnings.length),
         count: policy.warnings.length,
         details: policy.warnings.flatMap((w) => issueLines(w, "warning", s, "")),
       });
     }
-    checks.push({ id: "policy.models", level: "info", title: msg.doctor.models(modelUsage(policy)), details: [] });
-  } catch (err) {
-    if (!(err instanceof PolicyError)) throw err;
-    checks.push({
-      id: "policy",
-      level: "error",
-      title: msg.doctor.policyFailed(display),
-      details: policyProblemLines(err, s, ""),
-    });
+    checks.push({ id: `process:${p.name}.models`, level: "info", title: msg.doctor.models(modelUsage(policy)), details: [] });
   }
+  if (badNames.length > 0) {
+    checks.push({ id: "processes.names", level: "warning", title: msg.doctor.processBadNames(badNames.length), count: badNames.length, details: badNames });
+  }
+  const valid = processes.flatMap((p) => (p.ok ? [p.policy] : []));
 
-  if (policy) {
+  if (valid.length > 0) {
     const pi = runtime ?? new PiAgentRuntime({ agentDir: ctx.env["PI_CODING_AGENT_DIR"] ?? path.join(ctx.homeDir, ".pi", "agent"), cwd: ctx.cwd });
     try {
       const probe = await pi.probe();
@@ -117,9 +117,17 @@ export async function collectDoctorChecks(
         if (cli && cli !== probe.sdkVersion) checks.push({ id: "pi.version", level: "warning", title: msg.doctor.piVersionMismatch(probe.sdkVersion, cli), details: [] });
         else if (!cli) checks.push({ id: "pi.version", level: "info", title: msg.doctor.piCliMissing, details: [] });
       }
-      const refs = [...new Set([...agentList(policy.spec).map((a) => [a.model, a.thinking, a.piResources.extensions] as const), [policy.spec.supervisor.model, policy.spec.supervisor.thinking, policy.spec.supervisor.piResources.extensions] as const].map((r) => JSON.stringify(r)))];
+      // Модели всех валидных процессов: каждая разрешается один раз
+      const refs = [
+        ...new Set(
+          valid.flatMap((policy) => [
+            ...agentList(policy.spec).map((a) => [a.model, a.thinking, a.piResources.extensions] as const),
+            [policy.spec.supervisor.model, policy.spec.supervisor.thinking, policy.spec.supervisor.piResources.extensions] as const,
+          ]).map((r) => JSON.stringify(r)),
+        ),
+      ];
       for (const encoded of refs) {
-        const [ref, thinking, extensions] = JSON.parse(encoded) as [string, typeof policy.spec.supervisor.thinking, typeof policy.spec.supervisor.piResources.extensions];
+        const [ref, thinking, extensions] = JSON.parse(encoded) as [string, ThinkingLevel | null, "inherit" | "none"];
         try {
           const found = await pi.resolveModel({ ref, thinking, extensions: extensions === "inherit" });
           checks.push({ id: "pi.model", level: "ok", title: msg.doctor.piModelOk(ref, found.id), details: [] });
@@ -146,7 +154,7 @@ export async function collectDoctorChecks(
   }
 
   // Хранилище: только если .teo уже есть, doctor его не создаёт
-  const store = openProject(ctx, { project, policy });
+  const store = openProject(ctx, { project, processes });
   const teoExists = await store.teoExists();
   if (teoExists) {
     checks.push(...(await storageChecks(ctx, store)));
@@ -154,7 +162,7 @@ export async function collectDoctorChecks(
     checks.push({ id: "storage", level: "info", title: msg.doctor.teoAbsent, details: [] });
   }
 
-  return { checks, policyValid: policy !== null, store, teoExists };
+  return { checks, policyValid: processes.length > 0 && processes.every((p) => p.ok), store, teoExists };
 }
 
 /** Свежий heartbeat живого владельца: проект просто занят, это не проблема. */

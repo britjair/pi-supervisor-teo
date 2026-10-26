@@ -12,6 +12,9 @@ import { FakeClock } from "./fake-clock.js";
 import { validDir } from "./paths.js";
 import { tmpDir } from "./tmp.js";
 
+/** Имя процесса тестовых задач */
+export const TEST_PROCESS = "test";
+
 export const testPolicy = () => {
   const file = path.join(validDir, "discover-execute-done.md");
   return parsePolicyBytes(readFileSync(file), file);
@@ -24,7 +27,8 @@ export async function testStore(
   const clock = opts.clock ?? new FakeClock();
   const store = new ProjectStore({
     projectRoot: root,
-    policy: testPolicy(),
+    processes: [{ name: TEST_PROCESS, path: testPolicy().path, ok: true, policy: testPolicy() }],
+    processesDir: validDir,
     clock,
     ids: createIdGenerator(clock),
     ...(opts.faults ? { faults: opts.faults } : {}),
@@ -37,5 +41,5 @@ export async function testStore(
 }
 
 export async function newTask(store: ProjectStore, key: string, title = `Задача ${key}`) {
-  return createTask(store, { key, title, description: `Описание ${key}` });
+  return createTask(store, { key, title, description: `Описание ${key}`, process: TEST_PROCESS });
 }

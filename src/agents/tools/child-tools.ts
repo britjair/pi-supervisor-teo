@@ -206,7 +206,7 @@ export async function askAgentQuestion(core: EngineCore, request: HumanRequest) 
   if (!core.human) return null;
   const state = await core.store.tasks.readState(core.key);
   const run = state.currentRun;
-  const stageTitle = core.store.stageTitle(state.stage) ?? state.stage;
+  const stageTitle = core.store.stageTitle(state.process, state.stage) ?? state.stage;
   return core.ask({
     header: `Вопрос от агента ${run?.agentId ?? ""} · ${core.key} · ${stageTitle}`,
     question: request.question,

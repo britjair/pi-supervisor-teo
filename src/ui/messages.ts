@@ -174,6 +174,8 @@ export function policyIssueText(issue: Pick<PolicyIssue, "code" | "params">): st
 /** Заголовок ошибки Policy по коду шага preflight. */
 export function policyErrorHeadline(code: PolicyErrorCode, problems: number): string {
   switch (code) {
+    case "POLICY_NO_PROCESSES":
+      return "В каталоге процессов нет ни одного процесса (файла <процесс>.md).";
     case "POLICY_NOT_FOUND":
       return "Обязательный файл не найден.";
     case "POLICY_NOT_FILE":
@@ -199,9 +201,12 @@ export function policyErrorHeadline(code: PolicyErrorCode, problems: number): st
 export const msg = {
   policyErrorTitle: "Ошибка конфигурации процесса",
   file: (p: string) => `Файл: ${p}`,
+  processesDir: (p: string) => `Каталог процессов: ${p}`,
   line: (n: number) => `строка ${n}`,
   nothingStarted: "Ничего не запущено, .teo не изменён.",
   createPolicy: (p: string) => `Создайте ${p} и повторите команду. Автоматически он не создаётся.`,
+  createProcess: (dir: string) =>
+    `Добавьте процесс в ${dir} и повторите команду, например: cp examples/processes/dev.md ${dir}/dev.md`,
   fixPolicy: (p: string) => `Исправьте ${p} и повторите команду. Проверка: teo doctor`,
   warningsTitle: (n: number) => `Предупреждения (${n}):`,
 
@@ -210,7 +215,7 @@ export const msg = {
   debugLogHint: (file: string) => `Подробности: ${file} (или повторите команду с флагом --verbose).`,
 
   cli: {
-    description: "Supervisor процессов для Pi: ведёт задачи по процессу из ~/.pi/SDLC.md",
+    description: "Supervisor процессов для Pi: ведёт задачи по процессам из ~/.pi/teo/<процесс>.md",
     version: "показать версию",
     help: "показать справку",
     helpCommand: "показать справку по команде",
@@ -235,6 +240,7 @@ export const msg = {
     optLimit: "сколько событий показать",
     optReason: "причина отмены",
     optSetStage: "перевести задачу на этап",
+    optProcess: "процесс задачи: имя файла ~/.pi/teo/<процесс>.md",
     optAcceptPolicy: "принять изменённую Policy",
     optFix: "предложить исправления по одному",
     helpTitles: {
@@ -270,7 +276,11 @@ export const msg = {
   menu: {
     title: "Pi Supervisor TEO",
     project: (root: string) => `Проект: ${root}`,
-    policy: (p: string, hash: string, stages: number) => `Policy: ${p} · ${shortHash(hash)} · ${plurals.stages(stages)}`,
+    processes: (items: string[]) => `Процессы: ${items.join(", ")}`,
+    processOk: (name: string, stages: number) => `${name} (${plurals.stages(stages)})`,
+    processBroken: (name: string) => `${name} (⚠ ошибка Policy)`,
+    processProblem: (name: string, problem: "missing" | "invalid") =>
+      `⚠ процесс «${name}» ${problem === "missing" ? "не найден" : "с ошибками"}`,
     question: "Что вы хотите сделать?",
     create: "Создать новую задачу",
     finished: (n: number) => `Показать завершённые задачи (${n})`,
@@ -346,6 +356,11 @@ export const msg = {
 
   newTask: {
     title: "Новая задача",
+    process: "Процесс",
+    chooseProcess: "По какому процессу вести задачу?",
+    processChoice: (name: string, initial: string, stages: number) => `${name} — начальный этап «${initial}», ${plurals.stages(stages)}`,
+    processRequired: (names: string[]) =>
+      `Процессов несколько, без терминала укажите --process: ${names.join(", ")}.\nПример: teo new PAY-142 --process ${names[0] ?? "dev"} --title "…" --description-file task.txt`,
     projectRoot: (root: string, git: string | null) => `Проект: ${root}${git ? `   (${git})` : ""}`,
     gitSummary: (branch: string, clean: boolean) => `git: ${branch}, ${clean ? "чисто" : "есть незакоммиченные изменения"}`,
     key: "Ключ задачи",
@@ -416,6 +431,7 @@ export const msg = {
     header: (key: string, title: string) => `${key} · ${title}`,
     labels: {
       project: "Проект",
+      process: "Процесс",
       stage: "Этап",
       status: "Статус",
       agent: "Агент",
@@ -439,6 +455,9 @@ export const msg = {
       `${formatWhen(at, now)} ${action}${summary ? ` — ${summary}` : ""}`,
     none: "—",
     policyCurrent: (hash: string) => `${shortHash(hash)} (текущая)`,
+    policyUnavailable: (hash: string) => `${shortHash(hash)} (текущая Policy процесса недоступна)`,
+    processProblem: (name: string, problem: "missing" | "invalid") =>
+      `${name} · ⚠ ${problem === "missing" ? "файл процесса не найден" : "Policy процесса с ошибками"} (teo doctor)`,
     policyDiffers: (hash: string, current: string) => `${shortHash(hash)} (текущая Policy другая: ${shortHash(current)})`,
     usage: (inp: number, out: number, cost: number | null) =>
       `in ${compact(inp)} · out ${compact(out)}${cost !== null ? ` · $${cost.toFixed(2)}` : ""}`,
@@ -485,10 +504,12 @@ export const msg = {
   doctor: {
     title: "teo doctor",
     node: (v: string, min: string) => `Node.js ${v} (нужно ≥ ${min})`,
-    policyOk: (p: string, hash: string, stages: number, agents: number) =>
-      `Policy ${p} · ${shortHash(hash)} · ${plurals.stages(stages)}, ${plurals.agents(agents)}`,
-    policyWarnings: (n: number) => `${plurals.warnings(n)}`,
-    policyFailed: (p: string) => `Policy ${p}`,
+    processOk: (name: string, p: string, hash: string, stages: number, agents: number) =>
+      `Процесс ${name} · ${p} · ${shortHash(hash)} · ${plurals.stages(stages)}, ${plurals.agents(agents)}`,
+    processWarnings: (name: string, n: number) => `Процесс ${name}: ${plurals.warnings(n)}`,
+    processFailed: (name: string, p: string) => `Процесс ${name} · ${p}`,
+    processesNone: (dir: string) => `Процессов нет: в ${dir} нет ни одного файла <процесс>.md`,
+    processBadNames: (n: number) => `Файлы с недопустимым именем процесса пропущены (${n}): нужны строчные латинские буквы, цифры, «-» и «_»`,
     models: (refs: string) => `Модели в Policy: ${refs}`,
     modelsUsage: (ref: string, users: string[]) => `${ref} (${users.join(", ")})`,
     piSdk: (v: string) => `Pi SDK ${v} загружается`,

@@ -13,7 +13,7 @@ export async function askHumanStep(core: EngineCore, state: TaskState): Promise<
     core.reporter.emit({ type: "info", text: `Вопрос от supervisor ждёт ответа: ${request.question}` });
     return { kind: "waiting_human" };
   }
-  const stageTitle = core.store.stageTitle(state.stage) ?? state.stage;
+  const stageTitle = core.store.stageTitle(state.process, state.stage) ?? state.stage;
   const answer = await core.ask({
     header: `Вопрос от supervisor · ${core.key} · ${stageTitle}`,
     question: request.question,

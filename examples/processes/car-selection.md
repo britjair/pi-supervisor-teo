@@ -75,7 +75,7 @@ workflow:
         Сведи результаты всех предыдущих этапов в итоговую сводку заказа
         artifacts/order-summary.md и выведи её текст клиенту.
       transitions:
-        - to: completed
+        - to: order_placed
           when: >
             В artifacts/order-summary.md есть тип двигателя, марка и модель,
             город и салон, и все они совпадают с artifacts/fuel.md,
@@ -83,7 +83,7 @@ workflow:
           guards:
             evidence: required
 
-    completed:
+    order_placed:
       title: Заказ оформлен
       description: Клиент получил сводку заказа. Процесс подбора завершён.
       terminal: true

@@ -1,16 +1,22 @@
-# 01. Policy: формат и валидация `~/.pi/SDLC.md`
+# 01. Policy: формат и валидация процессов `~/.pi/teo/<процесс>.md`
 
 Детализирует разделы 7–8 [SDLC_CLI_SPEC.md](../SDLC_CLI_SPEC.md).
 
 ## 1. Загрузка
 
-### 1.1. Путь
+### 1.1. Каталог процессов
 
 ```ts
-const policyPath = path.join(os.homedir(), ".pi", "SDLC.md");
+const processesDir = path.join(os.homedir(), ".pi", "teo");   // ~/.pi/teo/<процесс>.md
 ```
 
-Переопределений через флаги нет. Для тестов `PolicyLoader` принимает путь параметром, а e2e-тест подменяет `HOME` (см. [06-implementation.md](06-implementation.md#43-e2e-smoke-с-pi)).
+Каждый файл `<процесс>.md` — отдельная Policy (D32). Имя процесса — имя файла без `.md`: строчные латинские буквы, цифры, `-` и `_`, до 64 символов (`car-selection`, `dev`). Файлы с другим именем пропускаются, `teo doctor` показывает их предупреждением.
+
+- Задача при создании выбирает процесс (`teo new --process <имя>`, меню в терминале; единственный валидный процесс выбирается сам) и запоминает его в `state.process`. Дальше она всегда идёт по файлу своего процесса.
+- Preflight выполняется для каждого процесса отдельно. Нет ни одного процесса — `POLICY_NO_PROCESSES`; нет ни одного валидного — ошибка первого процесса. В обоих случаях exit `2` до любых действий.
+- Невалидный или удалённый процесс при наличии валидных не мешает другим задачам (D41). Сводные команды помечают задачи такого процесса ⚠. Команды над такой задачей (`resume`, `status KEY`, `history KEY`, `cancel`, `recover`) и `new --process <он>` завершаются с exit `2`.
+
+Переопределений через флаги нет. Тесты подменяют `HOME` (см. [06-implementation.md](06-implementation.md#43-e2e-smoke-с-pi)).
 
 ### 1.2. Последовательность preflight
 
@@ -18,6 +24,7 @@ const policyPath = path.join(os.homedir(), ".pi", "SDLC.md");
 
 | # | Проверка | Код ошибки |
 |---|---|---|
+| 0 | В каталоге процессов есть хотя бы один `<процесс>.md` (только для preflight всех процессов) | `POLICY_NO_PROCESSES` |
 | 1 | `fs.stat(path)` успешен | `POLICY_NOT_FOUND` |
 | 2 | `stat.isFile()` (симлинк на файл допустим, `stat`, не `lstat`) | `POLICY_NOT_FILE` |
 | 3 | `fs.readFile` успешен | `POLICY_UNREADABLE` |
@@ -261,7 +268,7 @@ code_review:
 ```text
 Process configuration error
 
-File: /Users/user/.pi/SDLC.md
+File: /Users/user/.pi/teo/dev.md
 Policy is invalid (3 problems):
 
   ✗ workflow.stages.review.transitions[1].to (line 48)
@@ -274,7 +281,7 @@ Policy is invalid (3 problems):
     No terminal stage is reachable from initialStage "requirements".
 
 Nothing was started and .teo was not modified.
-Fix ~/.pi/SDLC.md and restart the command. Check it with: teo doctor
+Fix ~/.pi/teo/dev.md and restart the command. Check it with: teo doctor
 ```
 
 Exit code — `2`. Номера строк берутся из YAML-узлов (`yaml` хранит `range`), для графовых ошибок — из узла этапа.

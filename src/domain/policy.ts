@@ -1,4 +1,4 @@
-// Модель Policy (~/.pi/SDLC.md), 01-policy.md §2. Только типы и чистые функции.
+// Модель Policy — файла процесса ~/.pi/teo/<процесс>.md, 01-policy.md §2. Только типы и чистые функции.
 // Код не знает ни одного конкретного этапа или агента: всё приходит из файла.
 
 export const POLICY_SCHEMA_ID = "teo/v1";
@@ -109,7 +109,7 @@ export type PolicyIssue = {
   code: string;
   /** Путь в front matter: workflow.stages.review.transitions[1].to */
   path: string | null;
-  /** Номер строки в файле SDLC.md (с 1) */
+  /** Номер строки в файле процесса (с 1) */
   line: number | null;
   params: Record<string, PolicyIssueParam>;
 };
@@ -117,7 +117,11 @@ export type PolicyIssueParam = string | number | boolean | null | readonly strin
 
 export type PolicyWarning = PolicyIssue;
 
+/** Имя процесса — имя файла ~/.pi/teo/<имя>.md: как ключ задачи, но в нижнем регистре (D32). */
+export const PROCESS_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
 export type PolicyErrorCode =
+  | "POLICY_NO_PROCESSES"
   | "POLICY_NOT_FOUND"
   | "POLICY_NOT_FILE"
   | "POLICY_UNREADABLE"

@@ -36,7 +36,7 @@ export function closestMatch(value: string, candidates: readonly string[]): stri
   return bestDistance <= limit ? best : null;
 }
 
-/** /Users/u/.pi/SDLC.md → ~/.pi/SDLC.md */
+/** /Users/u/.pi/teo/dev.md → ~/.pi/teo/dev.md */
 export function tildify(filePath: string, homeDir: string): string {
   if (homeDir && (filePath === homeDir || filePath.startsWith(homeDir + "/"))) {
     return "~" + filePath.slice(homeDir.length);

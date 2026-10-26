@@ -1,10 +1,12 @@
 # pi-supervisor-teo
 
-CLI `teo` ведёт задачу через SDLC-процесс, описанный в `~/.pi/SDLC.md`. Агенты и supervisor работают через Pi SDK 1.4.0. Спецификация — [docs/](docs/README.md), исходные цели — [SDLC_CLI_SPEC.md](SDLC_CLI_SPEC.md).
+CLI `teo` ведёт задачи по процессам из `~/.pi/teo/<процесс>.md`: разработка, подбор автомобиля, любой другой процесс с этапами, ролями и проверяемыми переходами. Агенты и supervisor работают через Pi SDK 1.4.0. Дальнейший план — режим расширения Pi ([docs/07-extension-mode.md](docs/07-extension-mode.md)). Спецификация — [docs/](docs/README.md), исходные цели — [SDLC_CLI_SPEC.md](SDLC_CLI_SPEC.md).
 
 ## Статус
 
-Готовы этапы M1–M6 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)):
+Готовы этапы M1–M6 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)), R1 (переименование) и R2 (несколько процессов) из [docs/07-extension-mode.md §6](docs/07-extension-mode.md#6-этапы-реализации):
+
+- несколько процессов (R2): каталог `~/.pi/teo/`, задача запоминает процесс (`state.process`), `teo new --process`, выбор процесса в форме, колонка процесса в меню и сводках; невалидный или удалённый процесс помечается ⚠ и не мешает задачам других процессов;
 
 - загрузчик и валидатор Policy (`src/policy/`): preflight, front matter, схема, граф, hash, структурный diff, снимки;
 - хранилище `.teo/` (`src/state/`): атомарная запись, `state.json` с инвариантами и outbox, журнал событий с ремонтом хвоста, обнаружение подмены state, `index.json`, project lock с takeover и heartbeat, `debug.log` (последний процесс, ротация в `.1`, ≤ 5 MB);
@@ -46,16 +48,16 @@ scripts/e2e.sh                   # платный e2e через реальну�
 TEO_DEV_REBUILD=1 scripts/dev.sh true   # пересобрать образ
 ```
 
-Проверить свою Policy, не трогая `~/.pi`, можно на копии:
+Проверить свой процесс, не трогая `~/.pi`, можно на копии:
 
 ```bash
-scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi && cp examples/SDLC.md /tmp/h/.pi/SDLC.md && HOME=/tmp/h node dist/cli.js doctor'
+scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi/teo && cp examples/processes/*.md /tmp/h/.pi/teo/ && HOME=/tmp/h node dist/cli.js doctor'
 ```
 
 ### Тесты
 
 - `test/fixtures/policies/invalid/<CODE>.md` — по фикстуре на каждую ошибку. Маркер `# expect: CODE` стоит на строке, где должна сообщаться ошибка: тест сверяет коды и номера строк со всеми маркерами. `# expect-unlocated: CODE` — ошибка без номера строки.
-- `test/fixtures/policies/valid/` и `examples/SDLC.md` должны загружаться. Предупреждения отмечаются маркером `# warn: CODE`.
+- `test/fixtures/policies/valid/` и `examples/processes/` должны загружаться. Предупреждения отмечаются маркером `# warn: CODE`.
 - `test/unit/no-process-literals.test.ts` (критерий приёмки 2): ни один строковый литерал в `src/` не совпадает с id этапа или агента из фикстур и не содержит название этапа.
 - Тесты хранилища `test/integration/storage-cli.test.ts` запускают собранный `dist/cli.js` с подменённым `HOME` и `TZ=UTC`. Сбой в именованной точке включается переменной `TEO_FAULT=after-state-commit:kill` (D27): так тест убивает процесс между записью state и журналом.
 - `test/integration/engine-*.test.ts` прогоняют движок на `FakeAgentRuntime` с временным проектом и инъекцией сбоя в каждой именованной точке каждого её прохождения; отдельные unit-тесты проверяют guard, evidence и остановку активной сессии.
@@ -63,7 +65,8 @@ scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi && cp examples/SDLC.md /tmp/h/.pi/SDLC
 - `test/integration/recover.test.ts` — каждая ситуация `teo recover` и флаги через CLI; `test/integration/doctor-fix.test.ts` — исправления `doctor --fix`, отказ, lock другого хоста, живой владелец.
 - `test/unit/redact.test.ts` — реальные форматы токенов (собираются из частей, чтобы сканеры секретов не реагировали на фикстуры) и отсутствие ложных срабатываний на хешах, ULID и счётчиках токенов.
 - `test/unit/prompts.test.ts` — snapshot-ы промптов в `test/unit/__snapshots__/prompts/` на двух Policy; после осознанного изменения шаблона обновляются через `scripts/dev.sh npx vitest run -u test/unit/prompts.test.ts`.
-- Полный обычный прогон M6: 43 файла, 466 тестов; реальный Pi e2e: 3 теста (две Policy + guard).
+- `test/integration/processes.test.ts` — несколько процессов: выбор, `--process`, невалидный и удалённый процесс, `doctor` по процессам.
+- Полный обычный прогон R2: 45 файлов, 477 тестов; реальный Pi e2e: 4 теста (две Policy, guard, прототип режима расширения). Один e2e-файл: `scripts/e2e.sh test/e2e/pi-smoke.test.ts`.
 - `scripts/e2e.sh` монтирует только нужные файлы из `~/.pi/agent` **read-only**, копирует их во временный контейнер и удаляет список установленных пакетов/расширений из копии настроек. Исходный `~/.pi` не изменяется. Для другого источника: `TEO_E2E_AGENT_DIR=<каталог> scripts/e2e.sh`. E2E делает реальные вызовы модели и может стоить денег.
 
 ## Установка на хост
@@ -84,8 +87,10 @@ npm ci && npm run build && npm link   # команда teo появляется 
 Затем:
 
 ```bash
-cp examples/SDLC.md ~/.pi/SDLC.md     # пример процесса; правьте под себя
-cd <проект> && teo doctor            # Policy, Pi SDK, модели, авторизация, хранилище
+mkdir -p ~/.pi/teo
+cp examples/processes/dev.md ~/.pi/teo/dev.md                       # процесс разработки
+cp examples/processes/car-selection.md ~/.pi/teo/car-selection.md   # тестовый процесс подбора автомобиля
+cd <проект> && teo doctor            # процессы, Pi SDK, модели, авторизация, хранилище
 teo                                  # меню: создать или продолжить задачу
 ```
 

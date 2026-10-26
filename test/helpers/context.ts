@@ -3,7 +3,7 @@
 import os from "node:os";
 import { PassThrough } from "node:stream";
 import type { AppContext } from "../../src/app.js";
-import { PolicyLoader } from "../../src/policy/policy-loader.js";
+import { ProcessCatalog } from "../../src/policy/process-catalog.js";
 import type { HumanIO } from "../../src/ui/human-io.js";
 import { createStyle } from "../../src/ui/plain/style.js";
 import type { Clock } from "../../src/util/clock.js";
@@ -41,7 +41,7 @@ export function testContext(
     exec: execFileNoThrow,
     process: { pid: process.pid, hostname: os.hostname(), startedAt: clock.now().toISOString() },
     nodeVersion: opts.nodeVersion ?? process.versions.node,
-    policyLoader: new PolicyLoader(sb.policyPath),
+    processes: new ProcessCatalog(sb.processesDir),
     debugLog: new DebugLog(() => clock.now()),
     log: () => undefined,
     out: () => out,

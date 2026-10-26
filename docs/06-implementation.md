@@ -203,7 +203,7 @@ test/
 - Redaction и его тесты на наборах реальных форматов токенов.
 - `doctor --fix`.
 - `recover` для всех ситуаций [05-cli-ui.md §2.1](05-cli-ui.md#21-teo-recover).
-- README установки (`npm ci && npm run build && npm link`), пример `SDLC.md`.
+- README установки (`npm ci && npm run build && npm link`), примеры процессов `examples/processes/`.
 - Прогон чек-листа приёмки §5.
 
 ## 4. Тесты
@@ -272,7 +272,7 @@ test/
 Окружение:
 
 ```text
-HOME=<tmp>/home                       # → <tmp>/home/.pi/SDLC.md = test/fixtures/policies/valid/discover-execute-done.md
+HOME=<tmp>/home                       # → <tmp>/home/.pi/teo/test.md = test/fixtures/policies/valid/discover-execute-done.md
 PI_CODING_AGENT_DIR=<реальный ~/.pi/agent>   # авторизация и модели пользователя
 cwd=<tmp>/project                     # git init, один файл
 ```
@@ -298,7 +298,7 @@ Policy `discover → execute → done` с инструкциями «созда�
 
 | # | Критерий (раздел 28) | Проверка |
 |---|---|---|
-| 1 | Нет/нечитаем/пуст/невалиден `SDLC.md` → exit 2 до меню | unit `policy-loader` + integration для каждой команды |
+| 1 | Нет процессов или файл процесса нечитаем/пуст/невалиден → exit 2 до меню | unit `policy-loader` + integration для каждой команды |
 | 2 | Нет названий этапов и графа в исходниках | §4.4 |
 | 3 | Изменение этапов не требует пересборки | e2e на двух разных Policy с одним `dist/` |
 | 4 | Меню: создание и список незавершённых | ink-тест меню, integration 18 |
@@ -307,7 +307,7 @@ Policy `discover → execute → done` с инструкциями «созда�
 | 7 | Второй процесс не меняет состояние | integration 19, unit `lock-manager` |
 | 8 | Агент не меняет stage | набор tools агента (unit), guard (unit), integration 22 |
 | 9 | После агента всегда supervisor | integration 4, 15; unit фаз |
-| 10 | Supervisor читает актуальный `SDLC.md`, видит только объявленные переходы | snapshot evaluation prompt; integration 10, 17 |
+| 10 | Supervisor читает актуальный файл процесса, видит только объявленные переходы | snapshot evaluation prompt; integration 10, 17 |
 | 11 | Проверить, продолжить, перезапустить, спросить, заблокировать, перейти | integration 2, 5, 6, 7, 9 |
 | 12 | Заявление без результата не даёт перехода | guards (integration 11); `evidence: required` с неразрешимой ссылкой отклоняется |
 | 13 | После transition агент нового этапа стартует сам | integration 2 |

@@ -42,9 +42,10 @@ export function policyProblemLines(err: PolicyError, style: Style, indent = "  "
 export function renderPolicyError(err: PolicyError, opts: { homeDir: string; style: Style }): string {
   const { style } = opts;
   const display = tildify(err.file, opts.homeDir);
-  const out = [style.bold(msg.policyErrorTitle), "", msg.file(err.file), ...policyProblemLines(err, style), ""];
+  const none = err.code === "POLICY_NO_PROCESSES";
+  const out = [style.bold(msg.policyErrorTitle), "", none ? msg.processesDir(err.file) : msg.file(err.file), ...policyProblemLines(err, style), ""];
   out.push(msg.nothingStarted);
-  out.push(err.code === "POLICY_NOT_FOUND" ? msg.createPolicy(display) : msg.fixPolicy(display));
+  out.push(none ? msg.createProcess(display) : err.code === "POLICY_NOT_FOUND" ? msg.createPolicy(display) : msg.fixPolicy(display));
   return out.join("\n") + "\n";
 }
 

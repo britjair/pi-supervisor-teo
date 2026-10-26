@@ -15,6 +15,7 @@ export type TaskViewData = {
   key: string;
   state: TaskState;
   stageTitle: string | null;
+  processProblem: "missing" | "invalid" | null;
   live: boolean;
   livePid: number | null;
   next: NextAction;
@@ -49,13 +50,14 @@ export function lockText(lock: LockInspection, now: Date): string {
 /** teo status KEY */
 export function renderStatus(
   v: TaskViewData,
-  ctx: ViewContext & { lock: LockInspection; currentPolicyHash: PolicyHash },
+  ctx: ViewContext & { lock: LockInspection; currentPolicyHash: PolicyHash | null },
 ): string {
   const s = v.state;
   const L = msg.status.labels;
   const run = s.currentRun;
   const pairs: Array<[string, string]> = [
     [L.project, s.projectRoot],
+    [L.process, v.processProblem ? msg.status.processProblem(s.process, v.processProblem) : s.process],
     [L.stage, msg.status.stage(v.stageTitle, s.stage, s.stageEnteredAt, s.stageCycles, ctx.now)],
     [L.status, msg.status.status(s.status, s.phase)],
   ];
@@ -76,7 +78,11 @@ export function renderStatus(
   pairs.push([L.next, nextActionText(v.next, { key: v.key, now: ctx.now })]);
   pairs.push([
     L.policy,
-    s.policyHash === ctx.currentPolicyHash ? msg.status.policyCurrent(s.policyHash) : msg.status.policyDiffers(s.policyHash, ctx.currentPolicyHash),
+    ctx.currentPolicyHash === null
+      ? msg.status.policyUnavailable(s.policyHash)
+      : s.policyHash === ctx.currentPolicyHash
+        ? msg.status.policyCurrent(s.policyHash)
+        : msg.status.policyDiffers(s.policyHash, ctx.currentPolicyHash),
   ]);
   pairs.push([L.lock, lockText(ctx.lock, ctx.now)]);
   if (v.runtime) {
@@ -86,20 +92,26 @@ export function renderStatus(
   return [ctx.style.bold(msg.status.header(v.key, s.title)), ...labeled(pairs)].join("\n") + "\n";
 }
 
-/** Строки задач для меню и сводки status: ключ, этап, статус, название. */
+/** Этап задачи: название из Policy её процесса или пометка, почему его нет (D41). */
+function stageCell(v: TaskViewData): string {
+  if (v.processProblem) return msg.menu.processProblem(v.state.process, v.processProblem);
+  return v.stageTitle ?? msg.menu.stageMissing(v.state.stage);
+}
+
+/** Строки задач для меню и сводки status: ключ, процесс, этап, статус, название. */
 export function taskRows(
   views: ReadonlyArray<{ ok: true; view: TaskViewData } | { ok: false; key: string }>,
   ctx: ViewContext,
 ): string[] {
   const rows = views.map((item) => {
-    if (!item.ok) return [msg.menu.corrupted(item.key), "", "", ""];
+    if (!item.ok) return [msg.menu.corrupted(item.key), "", "", "", ""];
     const v = item.view;
     const badge = statusBadge(v.next, {
       now: ctx.now,
       livePid: v.livePid,
       interrupted: v.state.status === "interrupted",
     });
-    return [v.key, v.stageTitle ?? msg.menu.stageMissing(v.state.stage), badge, v.state.title];
+    return [v.key, v.state.process, stageCell(v), badge, v.state.title];
   });
   return table(rows, "   ");
 }
@@ -108,7 +120,8 @@ export function taskRows(
 export function renderTaskHistory(views: readonly TaskViewData[], ctx: ViewContext): string {
   const rows = views.map((v) => [
     v.key,
-    v.stageTitle ?? msg.menu.stageMissing(v.state.stage),
+    v.state.process,
+    stageCell(v),
     statusName(v.state.status),
     formatWhen(v.state.updatedAt, ctx.now),
     v.state.title,

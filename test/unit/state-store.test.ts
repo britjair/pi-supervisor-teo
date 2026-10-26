@@ -45,7 +45,7 @@ describe("создание задачи", () => {
     await expect(
       store.tasks.create(
         "T-1",
-        (c) => ({ ...(baseState(c.emit("task.created", "human", { title: "t", stage: "discover", policyHash: "x", projectRoot: "/" }))) }),
+        (c) => ({ ...(baseState(c.emit("task.created", "human", { title: "t", process: "test", stage: "discover", policyHash: "x", projectRoot: "/" }))) }),
         { taskMd: () => "" },
       ),
     ).rejects.toThrow(/уже существует/);
@@ -283,6 +283,7 @@ function baseState(createdId: string) {
     projectRoot: "/",
     workspacePath: null,
     createdAt: "2026-10-25T10:00:00.000Z",
+    process: "test",
     policyHash: `sha256:${"0".repeat(64)}` as const,
     policySchema: "teo/v1" as const,
     stage: "discover",

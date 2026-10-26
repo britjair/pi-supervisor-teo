@@ -124,6 +124,8 @@ export type TaskState = {
   /** +1 на каждую запись */
   version: number;
 
+  /** Процесс задачи: ~/.pi/teo/<process>.md (D32) */
+  process: string;
   policyHash: PolicyHash;
   policySchema: PolicySchemaId;
 

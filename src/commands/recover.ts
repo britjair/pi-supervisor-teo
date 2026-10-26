@@ -108,7 +108,7 @@ async function corruptedSession(store: ProjectStore, state: TaskState): Promise<
 
 export async function recoverSituation(store: ProjectStore, key: string): Promise<RecoverSituation> {
   const state = await store.tasks.load(key);
-  return { state, policy: store.policy, tampered: await tamperedInfo(store, state), corruptedSession: await corruptedSession(store, state) };
+  return { state, policy: store.policyOf(state.process), tampered: await tamperedInfo(store, state), corruptedSession: await corruptedSession(store, state) };
 }
 
 function actionLabel(a: RecoverAction, sit: RecoverSituation): string {
@@ -158,7 +158,7 @@ async function apply(store: ProjectStore, human: HumanIO, sit: RecoverSituation,
     case "set_stage": {
       const stageId = await chooseStage(human, sit);
       const next = await setStage(store, key, stageId, sit.policy);
-      return msg.recover.done.setStage(key, store.stageTitle(next.stage) ?? next.stage);
+      return msg.recover.done.setStage(key, store.stageTitle(next.process, next.stage) ?? next.stage);
     }
     case "accept_policy":
       await acceptPolicy(store, key, sit.policy);
@@ -196,13 +196,14 @@ export async function runRecover(ctx: AppContext, keyArg: string, opts: RecoverO
 
   return store.withLock({ command: "recover", taskKey: key }, async (lock) => {
     // Флаги — то же без меню (05-cli-ui.md §2.1); --set-stage уже включает принятие текущей Policy
+    const process = (await store.tasks.readState(key)).process;
     if (opts.setStage !== undefined) {
-      const next = await setStage(store, key, opts.setStage, store.policy);
-      out(msg.recover.done.setStage(key, store.stageTitle(next.stage) ?? next.stage) + "\n" + msg.recover.next(key));
+      const next = await setStage(store, key, opts.setStage, store.policyOf(process));
+      out(msg.recover.done.setStage(key, store.stageTitle(next.process, next.stage) ?? next.stage) + "\n" + msg.recover.next(key));
       return ExitCode.ok;
     }
     if (opts.acceptPolicy) {
-      await acceptPolicy(store, key, store.policy);
+      await acceptPolicy(store, key, store.policyOf(process));
       out(msg.recover.done.acceptPolicy(key) + "\n" + msg.recover.next(key));
       return ExitCode.ok;
     }

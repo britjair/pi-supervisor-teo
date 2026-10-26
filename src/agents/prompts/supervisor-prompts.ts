@@ -32,7 +32,7 @@ export function supervisorSystemPrompt(d: { instructions: string; body: string }
 ## Инструкции политики
 ${d.instructions.trim()}
 
-## Правила политики (Markdown-часть SDLC.md)
+## Правила политики (Markdown-часть файла процесса)
 ${d.body.trim() || "Нет."}`;
 }
 
@@ -179,7 +179,7 @@ export function evaluationPrompt(d: EvaluationPromptData): string {
     "# Последние события",
     ...(d.recentEvents.length ? d.recentEvents : ["Нет."]),
   ];
-  if (changed) lines.push("", "# Полный текст политики (SDLC.md)", d.policyRaw ?? "");
+  if (changed) lines.push("", "# Полный текст политики (файл процесса)", d.policyRaw ?? "");
   lines.push("", "Проверь факты и заверши цикл ровно одним вызовом управляющего инструмента.");
   return lines.join("\n");
 }

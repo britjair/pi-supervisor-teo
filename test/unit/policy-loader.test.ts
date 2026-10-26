@@ -2,7 +2,8 @@ import { chmod, mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PolicyError } from "../../src/errors/errors.js";
-import { PolicyLoader, defaultPolicyPath, loadPolicyFile } from "../../src/policy/policy-loader.js";
+import { loadPolicyFile } from "../../src/policy/policy-loader.js";
+import { ProcessCatalog, defaultProcessesDir } from "../../src/policy/process-catalog.js";
 import { hashPolicyBytes } from "../../src/policy/policy-hash.js";
 import { readFileSync } from "node:fs";
 import { validDir } from "../helpers/paths.js";
@@ -24,8 +25,9 @@ async function codeOf(file: string): Promise<{ code: string; issues: string[]; l
 }
 
 describe("preflight файла", () => {
-  it("путь по умолчанию — ~/.pi/SDLC.md", () => {
-    expect(defaultPolicyPath("/home/u")).toBe("/home/u/.pi/SDLC.md");
+  it("каталог процессов по умолчанию — ~/.pi/teo, процесс — <имя>.md", () => {
+    expect(defaultProcessesDir("/home/u")).toBe("/home/u/.pi/teo");
+    expect(new ProcessCatalog("/home/u/.pi/teo").pathOf("dev")).toBe("/home/u/.pi/teo/dev.md");
   });
 
   it("нет файла → POLICY_NOT_FOUND", async () => {
@@ -102,14 +104,14 @@ describe("загрузка", () => {
     expect(p.path).toBe(path.join(dir, "SDLC.md"));
   });
 
-  it("PolicyLoader перечитывает файл при каждом вызове", async () => {
+  it("процесс перечитывается при каждой загрузке", async () => {
     const dir = await tmpDir();
-    const file = path.join(dir, "SDLC.md");
+    const file = path.join(dir, "dev.md");
     await writeFile(file, VALID);
-    const loader = new PolicyLoader(file);
-    const first = await loader.loadAndValidate();
+    const catalog = new ProcessCatalog(dir);
+    const first = await catalog.load("dev");
     await writeFile(file, VALID + "\nДобавлено правило.\n");
-    const second = await loader.loadAndValidate();
+    const second = await catalog.load("dev");
     expect(second.hash).not.toBe(first.hash);
     expect(second.body).toContain("Добавлено правило.");
   });

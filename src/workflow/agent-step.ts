@@ -49,7 +49,7 @@ async function previousResults(core: EngineCore, excludeRunId: string | null): P
     out.push({
       agentId: r.agentId,
       attempt: r.attempt,
-      stageTitle: core.store.stageTitle(r.stage) ?? r.stage,
+      stageTitle: getStage(core.policy.spec, r.stage)?.title ?? r.stage,
       settleReason: r.settleReason,
       summary: report?.data.summary ?? r.lastAssistantText?.slice(0, 300) ?? "отчёта нет",
       artifacts: report?.kind === "result" ? (report.data.artifacts ?? []).map((a) => a.pathOrUrl) : [],

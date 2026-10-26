@@ -2,8 +2,7 @@
 
 import os from "node:os";
 import type { Readable, Writable } from "node:stream";
-import type { LoadedPolicy } from "./domain/policy.js";
-import { PolicyLoader, defaultPolicyPath } from "./policy/policy-loader.js";
+import { ProcessCatalog, defaultProcessesDir, type ProcessEntry } from "./policy/process-catalog.js";
 import { detectProjectRoot, type ProjectRoot } from "./project/project-root.js";
 import { ProjectStore } from "./state/project-store.js";
 import type { HumanIO } from "./ui/human-io.js";
@@ -38,7 +37,8 @@ export type AppContext = {
   exec: Exec;
   process: ProcessInfo;
   nodeVersion: string;
-  policyLoader: PolicyLoader;
+  /** Каталог процессов ~/.pi/teo/ (D32) */
+  processes: ProcessCatalog;
   /** .teo/debug.log: пишется всегда, в stderr — только с --verbose */
   debugLog: DebugLog;
   log(message: string): void;
@@ -56,7 +56,7 @@ export type AppOptions = {
 };
 
 export function createAppContext(o: AppOptions): AppContext {
-  // os.homedir() учитывает HOME: так e2e-тесты подменяют ~/.pi/SDLC.md (01-policy.md §1.1)
+  // os.homedir() учитывает HOME: так тесты подменяют каталог процессов ~/.pi/teo (01-policy.md §1.1)
   const homeDir = os.homedir();
   const env = o.env ?? process.env;
   const style = createStyle(o.color);
@@ -80,7 +80,7 @@ export function createAppContext(o: AppOptions): AppContext {
     exec: execFileNoThrow,
     process: { pid: process.pid, hostname: os.hostname(), startedAt: clock.now().toISOString() },
     nodeVersion: process.versions.node,
-    policyLoader: new PolicyLoader(defaultPolicyPath(homeDir)),
+    processes: new ProcessCatalog(defaultProcessesDir(homeDir)),
     debugLog,
     log: (message) => {
       debugLog.write(message);
@@ -89,23 +89,31 @@ export function createAppContext(o: AppOptions): AppContext {
   };
 }
 
-export type Preflight = { project: ProjectRoot; policy: LoadedPolicy };
+export type Preflight = { project: ProjectRoot; processes: ProcessEntry[] };
 
 /**
- * Общий старт команд (05-cli-ui.md §1): project root (только чтение), затем preflight Policy.
- * Ошибка Policy бросается как PolicyError (exit 2) до любой записи в .teo.
+ * Общий старт команд (05-cli-ui.md §1): project root (только чтение), затем preflight всех процессов.
+ * Нет ни одного валидного процесса → PolicyError (exit 2) до любой записи в .teo. Невалидный процесс
+ * при наличии валидных не мешает (D41): его задачи помечаются, а команда над такой задачей
+ * получает ошибку процесса через store.policyOf().
  */
 export async function preflight(ctx: AppContext): Promise<Preflight> {
   const project = await detectProjectRoot(ctx.cwd, ctx.exec);
-  const policy = await ctx.policyLoader.loadAndValidate();
-  return { project, policy };
+  const processes = await ctx.processes.loadAll();
+  if (processes.length === 0) throw ctx.processes.noProcessesError();
+  if (!processes.some((p) => p.ok)) {
+    const first = processes[0];
+    if (first && !first.ok) throw first.error;
+  }
+  return { project, processes };
 }
 
 /** Хранилище проекта. Ничего не создаёт: .teo появляется при первой mutating-операции. */
-export function openProject(ctx: AppContext, pf: { project: ProjectRoot; policy: LoadedPolicy | null }): ProjectStore {
+export function openProject(ctx: AppContext, pf: { project: ProjectRoot; processes: readonly ProcessEntry[] }): ProjectStore {
   const store = new ProjectStore({
     projectRoot: pf.project.root,
-    policy: pf.policy,
+    processes: pf.processes,
+    processesDir: ctx.processes.dir,
     clock: ctx.clock,
     ids: ctx.ids,
     faults: ctx.faults,

@@ -2,7 +2,7 @@
   "name": "pi-supervisor-teo",
   "version": "0.1.0",
   "private": true,
-  "description": "Supervisor процессов для Pi: ведёт задачи по процессу из ~/.pi/SDLC.md",
+  "description": "Supervisor процессов для Pi: ведёт задачи по процессам из ~/.pi/teo/<процесс>.md",
   "type": "module",
   "bin": {
     "teo": "dist/cli.js"

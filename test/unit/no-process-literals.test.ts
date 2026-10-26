@@ -1,5 +1,5 @@
 // Критерий приёмки 2: в исходниках нет названий этапов, агентов и графа конкретного процесса
-// (06-implementation.md §4.4). Идентификаторы и названия берутся из всех valid-фикстур и examples/SDLC.md.
+// (06-implementation.md §4.4). Идентификаторы и названия берутся из всех valid-фикстур и examples/processes/.
 
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -7,10 +7,11 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { agentList, stageList } from "../../src/domain/policy.js";
 import { parsePolicyBytes } from "../../src/policy/policy-loader.js";
-import { examplePolicy, repoRoot, validDir } from "../helpers/paths.js";
+import { examplesDir, repoRoot, validDir } from "../helpers/paths.js";
 
 function processVocabulary(): { ids: Set<string>; titles: Set<string> } {
-  const files = [...readdirSync(validDir).filter((f) => f.endsWith(".md")).map((f) => path.join(validDir, f)), examplePolicy];
+  const md = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => path.join(dir, f));
+  const files = [...md(validDir), ...md(examplesDir)];
   const ids = new Set<string>();
   const titles = new Set<string>();
   for (const file of files) {

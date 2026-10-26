@@ -1,6 +1,6 @@
 # 07. pi-supervisor-teo: переименование, несколько процессов, режим расширения Pi
 
-Статус: **согласовано, реализация идёт по этапам §6**.
+Статус: **согласовано, реализация идёт по этапам §6**. Готовы R1 и R2.
 
 Проект переименовывается в `pi-supervisor-teo`: применение шире, чем SDLC. Кроме CLI появляется второй способ работы — по образцу [tintinweb/pi-supervisor](https://github.com/tintinweb/pi-supervisor): supervisor подключается к обычной сессии Pi, и пользователь работает в привычном TUI Pi.
 
@@ -49,7 +49,7 @@
   - команды над задачей (`resume`, `status KEY`, `history KEY`, `cancel`, `recover`) — процесс задачи;
   - сводные (`teo`, `status`, `history`) проверяют все процессы. Задачи процесса с ошибкой Policy помечаются ⚠, остальные работают (D41);
   - `doctor` проверяет каждый процесс отдельной строкой.
-- **Нет ни одного процесса** → exit `2` с подсказкой `cp examples/car-selection/SDLC.md ~/.pi/teo/car-selection.md`.
+- **Нет ни одного процесса** → exit `2` с подсказкой `cp examples/processes/dev.md ~/.pi/teo/dev.md`.
 - **Файл процесса задачи удалён** → exit `2` для этой задачи: «процесс X не найден». Задача не меняется.
 - **Меню** показывает колонку процесса, шапка — список процессов.
 - `examples/SDLC.md` → `examples/processes/dev.md`, `examples/car-selection/SDLC.md` → `examples/processes/car-selection.md`.

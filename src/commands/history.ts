@@ -44,6 +44,7 @@ export async function runHistory(ctx: AppContext, keyArg: string | undefined, op
 
   if (keyArg !== undefined) {
     const key = await store.requireKey(keyArg);
+    store.policyOf((await store.tasks.readState(key)).process);
     if (opts.json) {
       const all = await taskEvents(store, key);
       const shown = limit === null ? all : all.slice(-limit);

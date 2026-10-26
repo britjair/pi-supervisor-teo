@@ -91,7 +91,7 @@ export function supervisorReadTools(core: EngineCore): TeoToolDefinition[] {
   return [
     tool({
       name: "read_policy",
-      description: "Текст Policy (SDLC.md) и её hash: текущей или сохранённого снимка по hash",
+      description: "Текст Policy (файл процесса) и её hash: текущей или сохранённого снимка по hash",
       parameters: z.object({ hash: z.string().optional() }),
       async execute({ hash }) {
         if (!hash || hash === core.policy.hash) return ok(`hash: ${core.policy.hash}\n\n${core.policy.raw}`, 256 * 1024);

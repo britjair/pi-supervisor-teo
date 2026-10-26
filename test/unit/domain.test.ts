@@ -17,6 +17,7 @@ function base(over: Partial<TaskState> = {}): TaskState {
     createdAt: NOW.toISOString(),
     updatedAt: NOW.toISOString(),
     version: 1,
+    process: "test",
     policyHash: `sha256:${"0".repeat(64)}`,
     policySchema: "teo/v1",
     stage: "s",

@@ -80,7 +80,8 @@ export class Harness {
   newStore(faults: FaultInjector = noFaults): ProjectStore {
     return new ProjectStore({
       projectRoot: this.sb.project,
-      policy: parsePolicyBytes(Buffer.from(this.policyText), this.sb.policyPath),
+      processes: [{ name: this.sb.process, path: this.sb.policyPath, ok: true, policy: parsePolicyBytes(Buffer.from(this.policyText), this.sb.policyPath) }],
+      processesDir: this.sb.processesDir,
       clock: this.clock,
       ids: this.ids,
       faults,
@@ -91,7 +92,7 @@ export class Harness {
   }
 
   async createTask(key = "T-1", description = "Создай NOTES.md"): Promise<TaskState> {
-    return createTask(this.store, { key, title: `Задача ${key}`, description });
+    return createTask(this.store, { key, title: `Задача ${key}`, description, process: this.sb.process });
   }
 
   /** Один «процесс»: новый store и Engine под lock-ом проекта. */

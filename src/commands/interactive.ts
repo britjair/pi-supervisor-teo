@@ -25,11 +25,14 @@ type TaskExecutor = (ctx: AppContext, store: ProjectStore, key: string) => Promi
 type MenuChoice = { kind: "create" } | { kind: "task"; key: string } | { kind: "corrupted"; key: string } | { kind: "finished" } | { kind: "exit" };
 
 function header(ctx: AppContext, store: ProjectStore): string {
-  const p = store.policy;
+  const processes = store.processes.map((p) =>
+    p.ok ? msg.menu.processOk(p.name, Object.keys(p.policy.spec.workflow.stages).length) : msg.menu.processBroken(p.name),
+  );
   return [
     ctx.style.bold(msg.menu.title),
     msg.menu.project(store.layout.projectRoot),
-    msg.menu.policy(tildify(p.path, ctx.homeDir), p.hash, Object.keys(p.spec.workflow.stages).length),
+    msg.menu.processes(processes),
+    msg.processesDir(tildify(ctx.processes.dir, ctx.homeDir)),
     "",
   ].join("\n");
 }

@@ -45,7 +45,7 @@ export async function applyPolicy(
     { expectedVersion: state.version },
   );
   core.policy = loaded;
-  core.store.setPolicy(loaded);
+  core.store.setPolicy(state.process, loaded);
   core.reporter.emit({ type: "policy.changed", fromHash: state.policyHash, toHash: loaded.hash, mode });
   return next;
 }
@@ -58,7 +58,7 @@ export async function policyGate(
 ): Promise<ExitOutcome | "changed" | null> {
   const loaded = await loadPolicy();
   core.policy = loaded;
-  core.store.setPolicy(loaded);
+  core.store.setPolicy(state.process, loaded);
   if (loaded.hash === state.policyHash) return null;
 
   // Текущий этап исчез или стал терминальным: автоматическое продолжение запрещено во всех режимах

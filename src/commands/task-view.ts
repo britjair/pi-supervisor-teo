@@ -13,8 +13,10 @@ import type { TaskSnapshot } from "../state/state-store.js";
 export type TaskView = {
   key: string;
   state: TaskState;
-  /** null — этапа задачи нет в текущей Policy */
+  /** null — этапа задачи нет в текущей Policy её процесса */
   stageTitle: string | null;
+  /** Процесс задачи: missing — файла нет, invalid — Policy с ошибками (D41) */
+  processProblem: "missing" | "invalid" | null;
   /** Задачу сейчас ведёт живой процесс */
   live: boolean;
   livePid: number | null;
@@ -28,7 +30,8 @@ export type ListedView = { key: string; ok: true; view: TaskView } | { key: stri
 
 export async function taskView(store: ProjectStore, snapshot: TaskSnapshot, lock: LockInspection, now: Date): Promise<TaskView> {
   const { state } = snapshot;
-  const stage = getStage(store.policy.spec, state.stage);
+  const entry = store.process(state.process);
+  const stage = entry?.ok ? getStage(entry.policy.spec, state.stage) : undefined;
   const holder = lock.kind === "held" && lock.alive !== false && lock.lock.taskKey === state.key ? lock.lock : null;
   const lastUndelivered = snapshot.undelivered.at(-1);
   const lastRecent = snapshot.recent.at(-1);
@@ -36,6 +39,7 @@ export async function taskView(store: ProjectStore, snapshot: TaskSnapshot, lock
     key: state.key,
     state,
     stageTitle: stage?.title ?? null,
+    processProblem: !entry ? "missing" : entry.ok ? null : "invalid",
     live: holder !== null,
     livePid: holder?.pid ?? null,
     next: nextAction(state, { stageAgent: stage?.kind === "work" ? stage.agent : null, now, live: holder !== null }),

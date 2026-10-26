@@ -9,6 +9,7 @@ import { writeFileAtomic } from "./atomic-file.js";
 export type IndexEntry = {
   key: string;
   title: string;
+  process: string;
   stage: string;
   /** Из Policy на момент записи; null, если этапа нет в Policy */
   stageTitle: string | null;
@@ -33,6 +34,7 @@ const indexSchema = z.object({
     z.object({
       key: z.string(),
       title: z.string(),
+      process: z.string(),
       stage: z.string(),
       stageTitle: z.string().nullable(),
       status: z.enum(TASK_STATUSES),
@@ -44,14 +46,15 @@ const indexSchema = z.object({
   ),
 });
 
-export type StageTitleResolver = (stageId: string) => string | null;
+export type StageTitleResolver = (processName: string, stageId: string) => string | null;
 
 export function indexEntry(state: TaskState, stageTitle: StageTitleResolver): IndexEntry {
   return {
     key: state.key,
     title: state.title,
+    process: state.process,
     stage: state.stage,
-    stageTitle: stageTitle(state.stage),
+    stageTitle: stageTitle(state.process, state.stage),
     status: state.status,
     phase: state.phase,
     dueAt: state.wait?.dueAt ?? null,

@@ -174,8 +174,8 @@ export async function applyDecision(core: EngineCore, state: TaskState, attachme
   );
   core.reporter.emit({ type: "decision", cycle: decision.cycle, action: decision.action, summary: decisionSummary(before, decision) });
   if (decision.action === "transition_stage") {
-    const fromTitle = core.store.stageTitle(before.stage) ?? before.stage;
-    const toTitle = core.store.stageTitle(next.stage) ?? next.stage;
+    const fromTitle = core.store.stageTitle(before.process, before.stage) ?? before.stage;
+    const toTitle = core.store.stageTitle(next.process, next.stage) ?? next.stage;
     core.reporter.emit({
       type: "transition",
       from: before.stage,

@@ -56,13 +56,13 @@ describe("невалидная Policy → exit 2, .teo не создан", () =>
       expect(r.code, r.stdout + r.stderr).toBe(2);
       expect(await teoCreatedAnywhere(sb)).toBe(false);
       const out = r.stdout + r.stderr;
-      expect(out.includes(sb.policyPath) || out.includes("~/.pi/SDLC.md")).toBe(true);
+      expect(out.includes(sb.policyPath) || out.includes(sb.processesDir) || out.includes("~/.pi/teo")).toBe(true);
     });
   }
 });
 
 describe("сообщение об ошибке Policy", () => {
-  it("нет файла: путь, причина и следующий шаг", async () => {
+  it("нет ни одного процесса: каталог, причина и следующий шаг", async () => {
     const sb = await sandbox();
     const r = await runCli(sb, ["status"]);
     expect(r.stdout).toBe("");
@@ -70,11 +70,11 @@ describe("сообщение об ошибке Policy", () => {
       [
         "Ошибка конфигурации процесса",
         "",
-        `Файл: ${sb.policyPath}`,
-        "Обязательный файл не найден.",
+        `Каталог процессов: ${sb.processesDir}`,
+        "В каталоге процессов нет ни одного процесса (файла <процесс>.md).",
         "",
         "Ничего не запущено, .teo не изменён.",
-        "Создайте ~/.pi/SDLC.md и повторите команду. Автоматически он не создаётся.",
+        "Добавьте процесс в ~/.pi/teo и повторите команду, например: cp examples/processes/dev.md ~/.pi/teo/dev.md",
         "",
       ].join("\n"),
     );
@@ -92,7 +92,7 @@ describe("сообщение об ошибке Policy", () => {
       "✗ workflow.stages.qa_ready.agent (строка 29)",
       "✗ workflow.initialStage (строка 5)",
       "! workflow.stages.qa_ready (строка 27)",
-      "Исправьте ~/.pi/SDLC.md и повторите команду. Проверка: teo doctor",
+      "Исправьте ~/.pi/teo/test.md и повторите команду. Проверка: teo doctor",
     ]) {
       expect(r.stderr).toContain(line);
     }
@@ -108,7 +108,7 @@ describe("teo doctor", () => {
     expect(r.stderr).toBe("");
     expect(r.stdout).toContain("✓ Pi SDK 1.4.0 загружается");
     expect(r.stdout).toMatch(/^✓ Node.js \d+\.\d+\.\d+ \(нужно ≥ 22\.19\.0\)$/m);
-    expect(r.stdout).toMatch(/^✓ Policy ~\/\.pi\/SDLC\.md · sha256:[0-9a-f]{4}…[0-9a-f]{2} · 8 этапов, 5 агентов$/m);
+    expect(r.stdout).toMatch(/^✓ Процесс test · ~\/\.pi\/teo\/test\.md · sha256:[0-9a-f]{4}…[0-9a-f]{2} · 8 этапов, 5 агентов$/m);
     expect(r.stdout).toContain(`✓ Проект ${sb.project} (корень git-репозитория)`);
     expect(r.stdout).toContain("✗ Модель default недоступна или не авторизована");
     expect(existsSync(path.join(sb.project, ".teo"))).toBe(false);
@@ -118,7 +118,7 @@ describe("teo doctor", () => {
     const sb = await sandbox(fixture("POLICY_SCHEMA--values"));
     const r = await runCli(sb, ["doctor"]);
     expect(r.code).toBe(2);
-    expect(r.stdout).toContain("✗ Policy ~/.pi/SDLC.md");
+    expect(r.stdout).toContain("✗ Процесс test · ~/.pi/teo/test.md");
     expect(r.stdout).toContain("Policy невалидна (16 проблем):");
     const located = r.stdout.split("\n").filter((l) => /^\s+✗ \S+ \(строка \d+\)$/.test(l));
     expect(located).toHaveLength(16);
@@ -133,7 +133,7 @@ describe("teo doctor", () => {
     const sb = await sandbox(text);
     const r = await runCli(sb, ["doctor"]);
     expect(r.code).toBe(1);
-    expect(r.stdout).toContain("! 1 предупреждение");
+    expect(r.stdout).toContain("! Процесс test: 1 предупреждение");
     expect(r.stdout).toMatch(/! agents\.spare \(строка \d+\)/);
     expect(r.stdout).toContain("✗ Модель default недоступна или не авторизована");
   });

@@ -3,7 +3,7 @@
 
 import { z } from "zod";
 import { CONTROL_ACTIONS, type Decision } from "../domain/decisions.js";
-import type { PolicyHash } from "../domain/policy.js";
+import { PROCESS_NAME_RE, type PolicyHash } from "../domain/policy.js";
 import type { TaskEvent } from "../domain/events.js";
 import {
   AGENT_INPUT_KINDS,
@@ -59,6 +59,7 @@ export const taskStateSchema = z.object({
   createdAt: iso,
   updatedAt: iso,
   version: z.int().min(1),
+  process: z.string().regex(PROCESS_NAME_RE),
   policyHash: z.custom<PolicyHash>((v) => typeof v === "string" && /^sha256:[0-9a-f]{64}$/.test(v), "ожидается sha256:<hex>"),
   policySchema: z.literal("teo/v1"),
   stage: id,

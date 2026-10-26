@@ -52,6 +52,7 @@ export async function cancelTask(
 export async function runCancel(ctx: AppContext, keyArg: string, opts: { reason?: string }): Promise<number> {
   const { store } = await startCommand(ctx);
   const key = await store.requireKey(keyArg);
+  store.policyOf((await store.tasks.readState(key)).process);
   const cancelled = await cancelTask(store, key, { reason: opts.reason, human: ctx.human });
   ctx.stdout.write((cancelled ? msg.cancel.done(key) : msg.cancel.declined) + "\n");
   return ExitCode.ok;

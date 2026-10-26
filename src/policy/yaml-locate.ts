@@ -1,4 +1,4 @@
-// Номера строк для путей в front matter: ошибки ссылаются на строки SDLC.md (01-policy.md §3.3).
+// Номера строк для путей в front matter: ошибки ссылаются на строки файла процесса (01-policy.md §3.3).
 
 import { isAlias, isMap, isScalar, isSeq, type Document, type LineCounter, type Node } from "yaml";
 

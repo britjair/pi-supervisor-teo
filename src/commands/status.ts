@@ -1,6 +1,7 @@
 // teo status [KEY] [--json] (05-cli-ui.md §6). Без lock-а, ничего не пишет.
 
 import { startCommand, type AppContext } from "../app.js";
+import type { PolicyHash } from "../domain/policy.js";
 import { isFinished } from "../domain/task-state.js";
 import { ExitCode } from "../errors/errors.js";
 import type { ProjectStore } from "../state/project-store.js";
@@ -30,11 +31,16 @@ export function summaryText(ctx: AppContext, views: readonly ListedView[], now: 
   return lines.join("\n") + "\n";
 }
 
+function currentHash(store: ProjectStore, process: string): PolicyHash | null {
+  const entry = store.process(process);
+  return entry?.ok ? entry.policy.hash : null;
+}
+
 export async function statusText(ctx: AppContext, store: ProjectStore, key: string): Promise<string> {
   const now = ctx.clock.now();
   const lock = await store.locks.inspect();
   const view = await taskView(store, await store.tasks.read(key), lock, now);
-  return renderStatus(view, { now, style: ctx.style, lock, currentPolicyHash: store.policy.hash });
+  return renderStatus(view, { now, style: ctx.style, lock, currentPolicyHash: currentHash(store, view.state.process) });
 }
 
 export async function runStatus(ctx: AppContext, keyArg: string | undefined, opts: { json?: boolean }): Promise<number> {
@@ -45,16 +51,18 @@ export async function runStatus(ctx: AppContext, keyArg: string | undefined, opt
   if (keyArg !== undefined) {
     const key = await store.requireKey(keyArg);
     const view = await taskView(store, await store.tasks.read(key), lock, now);
+    // Команда над задачей проверяет её процесс: ошибка Policy процесса → exit 2
+    const policy = store.policyOf(view.state.process);
     ctx.stdout.write(
       opts.json
         ? json({
             state: view.state,
             runtime: view.runtime,
             lock,
-            policy: { currentHash: store.policy.hash, matches: view.state.policyHash === store.policy.hash },
+            policy: { process: view.state.process, currentHash: policy.hash, matches: view.state.policyHash === policy.hash },
             nextAction: nextActionJson(view, now),
           })
-        : renderStatus(view, { now, style: ctx.style, lock, currentPolicyHash: store.policy.hash }),
+        : renderStatus(view, { now, style: ctx.style, lock, currentPolicyHash: policy.hash }),
     );
     return ExitCode.ok;
   }
@@ -69,7 +77,7 @@ export async function runStatus(ctx: AppContext, keyArg: string | undefined, opt
             : { key: v.key, ok: false, error: v.error.message },
         ),
         lock,
-        policy: { currentHash: store.policy.hash },
+        processes: store.processes.map((p) => (p.ok ? { name: p.name, ok: true, currentHash: p.policy.hash } : { name: p.name, ok: false, error: p.error.code })),
       }),
     );
   } else {

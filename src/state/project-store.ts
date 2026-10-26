@@ -3,7 +3,8 @@
 import { mkdir, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getStage, type LoadedPolicy } from "../domain/policy.js";
-import { TaskCorruptedError, TaskNotFoundError } from "../errors/errors.js";
+import { PolicyError, TaskCorruptedError, TaskNotFoundError } from "../errors/errors.js";
+import type { ProcessEntry } from "../policy/process-catalog.js";
 import { PolicySnapshotStore } from "../policy/snapshot-store.js";
 import type { Clock } from "../util/clock.js";
 import { onCleanup } from "../util/cleanup.js";
@@ -17,8 +18,10 @@ import { findCaseInsensitive } from "./task-key.js";
 
 export type ProjectDeps = {
   projectRoot: string;
-  /** null — только для doctor при невалидной Policy: названия этапов тогда неизвестны */
-  policy: LoadedPolicy | null;
+  /** Процессы каталога ~/.pi/teo/ после preflight, включая невалидные (D41) */
+  processes: readonly ProcessEntry[];
+  /** Каталог процессов: путь файла процесса, которого нет в списке */
+  processesDir: string;
   clock: Clock;
   ids: IdGenerator;
   faults?: FaultInjector;
@@ -71,18 +74,33 @@ export class ProjectStore {
     this.snapshots = new PolicySnapshotStore(this.layout.policiesDir);
   }
 
-  /** Название этапа по текущей Policy; null — этапа в Policy нет. */
-  readonly stageTitle = (stageId: string): string | null =>
-    this.deps.policy ? (getStage(this.deps.policy.spec, stageId)?.title ?? null) : null;
-
-  /** Policy сменилась (policy gate): названия этапов в index берутся из новой. */
-  setPolicy(policy: LoadedPolicy): void {
-    this.deps.policy = policy;
+  get processes(): readonly ProcessEntry[] {
+    return this.deps.processes;
   }
 
-  get policy(): LoadedPolicy {
-    if (!this.deps.policy) throw new Error("Хранилище открыто без Policy");
-    return this.deps.policy;
+  process(name: string): ProcessEntry | null {
+    return this.deps.processes.find((p) => p.name === name) ?? null;
+  }
+
+  /** Policy процесса задачи. Нет файла или Policy невалидна → PolicyError (exit 2). */
+  policyOf(name: string): LoadedPolicy {
+    const entry = this.process(name);
+    if (!entry) throw new PolicyError("POLICY_NOT_FOUND", path.join(this.deps.processesDir, `${name}.md`), []);
+    if (!entry.ok) throw entry.error;
+    return entry.policy;
+  }
+
+  /** Название этапа по текущей Policy процесса; null — процесса или этапа в Policy нет. */
+  readonly stageTitle = (processName: string, stageId: string): string | null => {
+    const entry = this.process(processName);
+    return entry?.ok ? (getStage(entry.policy.spec, stageId)?.title ?? null) : null;
+  };
+
+  /** Policy процесса сменилась (policy gate): названия этапов в index берутся из новой. */
+  setPolicy(processName: string, policy: LoadedPolicy): void {
+    const rest = this.deps.processes.filter((p) => p.name !== processName);
+    const updated: ProcessEntry = { name: processName, path: policy.path, ok: true, policy };
+    this.deps.processes = [...rest, updated].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async teoExists(): Promise<boolean> {

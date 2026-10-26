@@ -11,6 +11,8 @@ import { RECOVER_ONLY_CODES, unblockTask } from "../workflow/manual.js";
 import { exitCodeFor } from "../workflow/outcome.js";
 
 export async function executeTask(ctx: AppContext, store: ProjectStore, key: string, options: { noWait?: boolean; checkNow?: boolean } = {}): Promise<number> {
+  // Процесс задачи проверяется до lock-а: его ошибка — exit 2 без изменений в .teo
+  store.policyOf((await store.tasks.readState(key)).process);
   const pi = new PiAgentRuntime({ agentDir: ctx.env["PI_CODING_AGENT_DIR"] ?? path.join(ctx.homeDir, ".pi", "agent"), cwd: store.layout.projectRoot });
   try {
     return await store.withLock({ command: "resume", taskKey: key }, async (lock) => {
@@ -32,11 +34,11 @@ export async function executeTask(ctx: AppContext, store: ProjectStore, key: str
       reporter.context({
         key,
         stage: state.stage,
-        stageTitle: store.stageTitle(state.stage) ?? state.stage,
+        stageTitle: store.stageTitle(state.process, state.stage) ?? state.stage,
         agent: state.currentRun ? `${state.currentRun.agentId}#${state.currentRun.attempt}` : null,
       });
       const engine = new Engine({
-        key, store, runtime: pi, policy: store.policy, loadPolicy: () => ctx.policyLoader.loadAndValidate(),
+        key, store, runtime: pi, policy: store.policyOf(state.process), loadPolicy: () => ctx.processes.load(state.process),
         human: ctx.human,
         reporter,
         ...(waitControl ? { waitControl } : {}),

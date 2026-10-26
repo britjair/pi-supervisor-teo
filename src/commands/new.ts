@@ -15,8 +15,8 @@ import type { HumanIO } from "../ui/human-io.js";
 import { msg } from "../ui/messages.js";
 import { executeTask } from "./run-task.js";
 
-export type NewOptions = { key?: string; title?: string; descriptionFile?: string; description?: string; noRun?: boolean };
-export type NewTaskInput = { key: string; title: string; description: string };
+export type NewOptions = { key?: string; title?: string; descriptionFile?: string; description?: string; process?: string; noRun?: boolean };
+export type NewTaskInput = { key: string; title: string; description: string; process: string };
 
 export const TITLE_MAX = 200;
 
@@ -68,7 +68,26 @@ async function inputFromFlags(ctx: AppContext, store: ProjectStore, opts: NewOpt
   const title = (opts.title ?? "").trim();
   const problem = keyError(key, await store.tasks.listKeys()) ?? titleError(title) ?? (description ? null : msg.newTask.descriptionEmpty);
   if (problem) throw new UsageError(problem);
-  return { key, title, description: description ?? "" };
+  return { key, title, description: description ?? "", process: await chooseProcess(null, store, opts.process) };
+}
+
+/**
+ * Процесс новой задачи (D32): флаг --process; единственный валидный процесс выбирается сам;
+ * несколько — меню в терминале, без терминала флаг обязателен. Невалидный процесс → PolicyError (exit 2).
+ */
+export async function chooseProcess(human: HumanIO | null, store: ProjectStore, flag: string | undefined): Promise<string> {
+  if (flag !== undefined) {
+    store.policyOf(flag);
+    return flag;
+  }
+  const valid = store.processes.flatMap((p) => (p.ok ? [p] : []));
+  const [only] = valid;
+  if (valid.length === 1 && only) return only.name;
+  if (!human) throw new UsageError(msg.newTask.processRequired(valid.map((p) => p.name)));
+  return human.select(
+    msg.newTask.chooseProcess,
+    valid.map((p) => ({ label: msg.newTask.processChoice(p.name, initialStageTitle(p.policy), Object.keys(p.policy.spec.workflow.stages).length), value: p.name })),
+  );
 }
 
 /** Проект занят живым процессом — сообщить до заполнения формы. */
@@ -101,7 +120,9 @@ export async function newTaskForm(
   let description = flagDescription ? flagDescription : undefined;
   if (opts.key !== undefined && key === undefined) human.print(ctx.style.yellow(`  ${keyError(opts.key, existing)}`));
 
-  const initial = initialStageLine(store.policy);
+  const process = await chooseProcess(human, store, opts.process);
+  human.print(`${msg.newTask.process}: ${process}`);
+  const initial = initialStageLine(store.policyOf(process));
   for (let editing = false; ; editing = true) {
     if (key === undefined || editing) {
       key = await human.input(msg.newTask.key, { ...(key !== undefined ? { initial: key } : {}), validate: (k) => keyError(k, existing) });
@@ -126,9 +147,13 @@ export async function newTaskForm(
       { label: msg.newTask.edit, value: "edit" as const },
       { label: msg.newTask.cancel, value: "cancel" as const, key: "q" },
     ]);
-    if (action === "create") return { key, title, description };
+    if (action === "create") return { key, title, description, process };
     if (action === "cancel") return null;
   }
+}
+
+function initialStageTitle(policy: LoadedPolicy): string {
+  return getStage(policy.spec, policy.spec.workflow.initialStage)?.title ?? policy.spec.workflow.initialStage;
 }
 
 function initialStageLine(policy: LoadedPolicy): string {
@@ -143,6 +168,7 @@ export function renderTaskMd(input: NewTaskInput, createdAt: string, projectRoot
     "",
     `Created: ${createdAt}`,
     `Project: ${projectRoot}`,
+    `Process: ${input.process}`,
     "",
     "## Описание",
     "",
@@ -153,7 +179,7 @@ export function renderTaskMd(input: NewTaskInput, createdAt: string, projectRoot
 
 /** Создать задачу под lock-ом проекта. Policy уже прошла preflight. */
 export async function createTask(store: ProjectStore, input: NewTaskInput): Promise<TaskState> {
-  const policy = store.policy;
+  const policy = store.policyOf(input.process);
   const stageId = policy.spec.workflow.initialStage;
   const projectRoot = store.layout.projectRoot;
   return store.withLock({ command: "new", taskKey: input.key, create: true }, async (lock) => {
@@ -164,7 +190,7 @@ export async function createTask(store: ProjectStore, input: NewTaskInput): Prom
     return store.tasks.create(
       input.key,
       (c) => {
-        const createdId = c.emit("task.created", "human", { title: input.title, stage: stageId, policyHash: policy.hash, projectRoot });
+        const createdId = c.emit("task.created", "human", { title: input.title, process: input.process, stage: stageId, policyHash: policy.hash, projectRoot });
         return {
           schemaVersion: TASK_STATE_SCHEMA_VERSION,
           key: input.key,
@@ -172,6 +198,7 @@ export async function createTask(store: ProjectStore, input: NewTaskInput): Prom
           projectRoot,
           workspacePath: null,
           createdAt: c.now,
+          process: input.process,
           policyHash: policy.hash,
           policySchema: policy.schema,
           stage: stageId,
@@ -201,9 +228,10 @@ export async function createTask(store: ProjectStore, input: NewTaskInput): Prom
 }
 
 export function createdText(store: ProjectStore, state: TaskState): string {
-  const stage = getStage(store.policy.spec, state.stage);
+  const policy = store.policyOf(state.process);
+  const stage = getStage(policy.spec, state.stage);
   const agentId = stage?.kind === "work" ? stage.agent : "";
-  const agent = getAgent(store.policy.spec, agentId);
+  const agent = getAgent(policy.spec, agentId);
   return [msg.newTask.created(state.key, stage?.title ?? state.stage, agent?.id ?? agentId), msg.newTask.notStarted(state.key)].join(
     "\n",
   );

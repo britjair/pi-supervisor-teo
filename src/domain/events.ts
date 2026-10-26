@@ -7,7 +7,7 @@ export type EventActor = "cli" | "supervisor" | "agent" | "human";
 
 /** Payload каждого типа события, 02-storage.md §6.2. */
 export type EventPayloads = {
-  "task.created": { title: string; stage: string; policyHash: string; projectRoot: string };
+  "task.created": { title: string; process: string; stage: string; policyHash: string; projectRoot: string };
   "task.resumed": { fromStatus: TaskStatus; phase: Phase; pid: number };
   "task.cancelled": { reason: string; humanResponseRef: string | null; by: "supervisor" | "human" };
   "task.blocked": { code: string; message: string; by: "supervisor" | "cli" };
