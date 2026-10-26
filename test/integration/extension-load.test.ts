@@ -111,7 +111,7 @@ describe("расширение Pi", () => {
 
       expect((await run("/teo history T-1"))[0]?.message).toContain("task.created");
       expect((await run("/teo"))[0]?.message).toContain("/teo status [KEY]");
-      expect(await run("/teo start")).toEqual([{ message: expect.stringContaining("/teo start появится на следующих этапах"), type: "warning" }]);
+      expect(await run("/teo next")).toEqual([{ message: expect.stringContaining("/teo next появится на следующих этапах"), type: "warning" }]);
       expect((await run("/teo nope"))[0]).toMatchObject({ type: "warning", message: expect.stringContaining("Неизвестная подкоманда") });
 
       const missing = await run("/teo status X-9");

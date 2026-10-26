@@ -122,8 +122,15 @@ describe("redactEventPayload", () => {
     expect(out.text).toContain("обрезано");
   });
 
-  it("не редактирует ответ человека — это доказательство approval", () => {
+  it("не редактирует ответ человека в нативном диалоге — это дословное доказательство approval", () => {
     const payload = { requestId: null, answer: "используй ключ " + TOKENS["Stripe live"], selectedOption: null };
     expect(redactEventPayload("human.responded", payload)).toBe(payload);
+  });
+
+  it("редактирует обычное сообщение человека из чата расширения (D43)", () => {
+    const payload = { requestId: null, answer: "токен " + TOKENS["GitHub classic"], selectedOption: null, channel: "chat" };
+    const out = redactEventPayload("human.responded", payload) as typeof payload;
+    expect(out).not.toBe(payload);
+    expect(out.answer).toBe(`токен ${REDACTED}`);
   });
 });

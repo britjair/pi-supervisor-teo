@@ -110,6 +110,14 @@ export type HumanRequest = {
 
 export type StatusReason = { code: string; message: string; at: string };
 
+/** Сессия Pi, в которой задача ведётся в режиме расширения (docs/07-extension-mode.md §4.3). */
+export type HostSession = {
+  sessionId: string;
+  /** null — сессия Pi в памяти, без файла */
+  sessionFile: string | null;
+  boundAt: string;
+};
+
 export type TaskState = {
   schemaVersion: typeof TASK_STATE_SCHEMA_VERSION;
 
@@ -159,6 +167,9 @@ export type TaskState = {
   lastDecision: { decisionId: string; action: string; summary: string; at: string } | null;
 
   pendingHumanRequest: HumanRequest | null;
+
+  /** Режим расширения: задача привязана к сессии Pi пользователя. null — ведётся CLI или не ведётся */
+  hostSession: HostSession | null;
 
   lastEventId: string;
   /** События, созданные последней записью state (transactional outbox, 02-storage.md §7.3) */

@@ -97,6 +97,8 @@ export const taskStateSchema = z.object({
     trigger: z.object({ kind: z.enum(TRIGGER_KINDS), ref: z.string().nullable() }).nullable(),
     lastPolicyHashShown: z.string().nullable(),
   }),
+  // Поле появилось на X2: в state-файлах прежних версий его нет
+  hostSession: z.object({ sessionId: id, sessionFile: z.string().nullable(), boundAt: iso }).nullable().default(null),
   pendingDecision: decision.nullable(),
   lastAppliedDecisionId: id.nullable(),
   lastDecision: z.object({ decisionId: id, action: id, summary: z.string(), at: iso }).nullable(),

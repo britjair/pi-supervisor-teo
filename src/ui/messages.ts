@@ -203,13 +203,32 @@ export const msg = {
     description: "Pi Supervisor TEO: задачи по процессам ~/.pi/teo с проверкой supervisor-а",
     help: [
       "Pi Supervisor TEO",
+      "  /teo start [KEY]     новая задача в этой сессии: процесс, описание, роль первого этапа",
+      "  /teo goal <цель>     задача-цель без процесса (ключ GOAL-N)",
+      "  /teo resume KEY      продолжить задачу в этой сессии",
+      "  /teo stop            отвязать задачу от сессии; продолжить: /teo resume KEY или teo resume KEY",
       "  /teo status [KEY]    состояние задач проекта или одной задачи",
       "  /teo history [KEY]   задачи проекта или журнал задачи",
-      "Скоро: /teo start, resume, goal, next, pause, stop, recover — supervisor в этой сессии.",
-      "Сейчас вести задачу можно командой teo в терминале.",
+      "Скоро: проверка supervisor-ом в конце хода, /teo next, pause, recover.",
     ].join("\n"),
     planned: (sub: string) => `/teo ${sub} появится на следующих этапах. Сейчас задачу ведёт команда teo в терминале.`,
     unknown: (sub: string) => `Неизвестная подкоманда /teo ${sub}. Справка: /teo help`,
+    askKey: "Ключ задачи",
+    goalUsage: "Укажите цель: /teo goal <текст цели>",
+    resumeUsage: "Укажите задачу: /teo resume KEY",
+    busy: (key: string) => `Сессия уже ведёт задачу ${key}. Сначала /teo stop.`,
+    alreadyBound: (key: string) => `Сессия уже ведёт задачу ${key}.`,
+    notBound: "Сессия не ведёт задачу teo.",
+    finished: (key: string) => `Задача ${key} завершена: вести нечего.`,
+    halted: (key: string, reason: string) => `Задача ${key} остановлена (${reason}). Разберите её в терминале: teo resume ${key} или teo recover ${key}.`,
+    bound: (key: string, stage: string, agent: string) => `teo: задача ${key} ведётся в этой сессии. Этап «${stage}», роль «${agent}».`,
+    autoResumed: (key: string, stage: string) => `teo: сессия снова ведёт задачу ${key}, этап «${stage}».`,
+    autoResumeFailed: (key: string, reason: string) => `teo: не удалось продолжить задачу ${key}: ${reason}`,
+    stopped: (key: string) => `teo: задача ${key} отвязана от сессии. Продолжить: /teo resume ${key}.`,
+    lockLost: (key: string) => `teo: lock проекта перехвачен другим процессом, задача ${key} больше не ведётся в этой сессии.`,
+    modelMissing: (model: string, agent: string) => `teo: модель ${model} роли «${agent}» не найдена в Pi — остаётся текущая модель.`,
+    modelUnavailable: (model: string, agent: string) => `teo: модель ${model} роли «${agent}» недоступна без авторизации — остаётся текущая модель.`,
+    status: (key: string, stage: string, agent: string, cycle: number) => `teo: ${key} · ${stage} · ${agent} · цикл ${cycle}`,
   },
 
   policyErrorTitle: "Ошибка конфигурации процесса",
@@ -743,7 +762,11 @@ export function eventSummary(e: TaskEvent): string {
     case "human.requested":
       return `вопрос: ${clip(e.payload.question)}`;
     case "human.responded":
-      return `ответ: ${clip(e.payload.answer)}`;
+      return `${e.payload.channel === "chat" ? "сообщение" : "ответ"}: ${clip(e.payload.answer)}`;
+    case "session.bound":
+      return `ведётся в сессии Pi ${e.payload.sessionId.slice(0, 8)}`;
+    case "session.unbound":
+      return `отвязана от сессии Pi (${e.payload.reason === "stop" ? "/teo stop" : e.payload.reason === "lock_lost" ? "lock потерян" : "другая сессия"})`;
     case "wait.scheduled":
       return `ожидание ${e.payload.number}/${e.payload.maxCount} до ${e.payload.dueAt}: ${clip(e.payload.waitingFor)}`;
     case "wait.finished":

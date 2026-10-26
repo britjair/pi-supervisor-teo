@@ -47,6 +47,8 @@ export type AppContext = {
 
 export type AppOptions = {
   cwd?: string;
+  /** Для embedding/tests; CLI и расширение по умолчанию используют домашний каталог процесса. */
+  homeDir?: string;
   env?: Record<string, string | undefined>;
   stdin: Readable & { isTTY?: boolean };
   stdout: Writable & { isTTY?: boolean };
@@ -62,7 +64,7 @@ export type HumanFactory = NonNullable<AppOptions["human"]>;
 
 export function createAppContext(o: AppOptions): AppContext {
   // os.homedir() учитывает HOME: так тесты подменяют каталог процессов ~/.pi/teo (01-policy.md §1.1)
-  const homeDir = os.homedir();
+  const homeDir = o.homeDir ?? os.homedir();
   const env = o.env ?? process.env;
   const style = createStyle(o.color);
   const interactive = o.stdin.isTTY === true && o.stdout.isTTY === true;

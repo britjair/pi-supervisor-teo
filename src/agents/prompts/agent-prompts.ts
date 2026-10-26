@@ -48,7 +48,7 @@ export type InitialPromptData = {
   restart?: { previousRunId: string; reason: string; message: string };
 };
 
-function transitionsBlock(spec: PolicySpec, stage: WorkStage): string {
+export function transitionsBlock(spec: PolicySpec, stage: WorkStage): string {
   return stage.transitions
     .map((t) => {
       const title = getStage(spec, t.to)?.title ?? t.to;

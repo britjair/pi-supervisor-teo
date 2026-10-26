@@ -38,6 +38,7 @@ function base(over: Partial<TaskState> = {}): TaskState {
     lastAppliedDecisionId: null,
     lastDecision: null,
     pendingHumanRequest: null,
+    hostSession: null,
     lastEventId: "E",
     outbox: [],
     ...over,

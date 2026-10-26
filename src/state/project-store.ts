@@ -3,7 +3,7 @@
 import { mkdir, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getStage, type LoadedPolicy } from "../domain/policy.js";
-import { PolicyError, TaskCorruptedError, TaskNotFoundError } from "../errors/errors.js";
+import { PolicyError, TaskCorruptedError, TaskNotFoundError, type LockLostError } from "../errors/errors.js";
 import type { ProcessEntry } from "../policy/process-catalog.js";
 import { PolicySnapshotStore } from "../policy/snapshot-store.js";
 import type { Clock } from "../util/clock.js";
@@ -171,6 +171,28 @@ export class ProjectStore {
       unregister();
       await lock.release();
     }
+  }
+
+  /**
+   * Долгий lock проекта для режима расширения (docs/07-extension-mode.md §4.3): держит процесс Pi,
+   * пока задача привязана к сессии. Обслуживание хранилища — как в withLock. Освобождает вызывающий.
+   */
+  async holdLock(opts: { command: string; taskKey: string; onLost?: (err: LockLostError) => void }): Promise<{ lock: HeldLock; release: () => Promise<void> }> {
+    const lock = await this.locks.acquire({ command: opts.command, taskKey: opts.taskKey, ...(opts.onLost ? { onLost: opts.onLost } : {}) });
+    const unregister = onCleanup(() => lock.release());
+    const release = async () => {
+      unregister();
+      await lock.release();
+    };
+    try {
+      await this.removeOrphans();
+      await this.deliverOutboxes();
+      await this.syncIndex();
+    } catch (err) {
+      await release();
+      throw err;
+    }
+    return { lock, release };
   }
 
   /**

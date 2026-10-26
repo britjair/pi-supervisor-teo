@@ -84,7 +84,8 @@ export function redact<T>(value: T, opts: { maxString?: number } = {}): T {
  * Ответ человека — доказательство approval, его текст сохраняется как есть.
  */
 export function redactEventPayload(type: string, payload: unknown): unknown {
-  if (type === "human.responded") return payload;
+  const chat = typeof payload === "object" && payload !== null && (payload as { channel?: unknown }).channel === "chat";
+  if (type === "human.responded" && !chat) return payload;
   return redact(payload, { maxString: MAX_EVENT_STRING });
 }
 

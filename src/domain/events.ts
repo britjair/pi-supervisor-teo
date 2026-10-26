@@ -36,8 +36,13 @@ export type EventPayloads = {
     options: string[] | null;
     attachments: Array<{ path: string; sha256: string }>;
   };
-  /** requestId = null — сообщение по инициативе человека */
-  "human.responded": { requestId: string | null; answer: string; selectedOption: string | null };
+  /**
+   * requestId = null — сообщение по инициативе человека. channel = "chat" — сообщение в чате сессии Pi
+   * в режиме расширения (D40): проходит redaction (D43). Без channel — ответ в диалоге, пишется дословно.
+   */
+  "human.responded": { requestId: string | null; answer: string; selectedOption: string | null; channel?: "chat" };
+  "session.bound": { sessionId: string; sessionFile: string | null };
+  "session.unbound": { sessionId: string; reason: "stop" | "lock_lost" | "other_session" };
   "stage.transitioned": {
     from: string;
     to: string;

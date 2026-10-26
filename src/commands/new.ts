@@ -269,6 +269,7 @@ export async function createTask(store: ProjectStore, input: NewTaskInput): Prom
           lastAppliedDecisionId: null,
           lastDecision: null,
           pendingHumanRequest: null,
+          hostSession: null,
         };
       },
       // Время в task.md совпадает с createdAt state: оба берутся из одного commit-а

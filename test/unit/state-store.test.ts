@@ -304,5 +304,6 @@ function baseState(createdId: string) {
     lastAppliedDecisionId: null,
     lastDecision: null,
     pendingHumanRequest: null,
+    hostSession: null,
   };
 }
