@@ -102,8 +102,17 @@ export class PiAgentRuntime implements AgentRuntime {
       settingsManager: settings, sessionManager: SessionManager.inMemory(this.cwd),
       resourceLoader: loader, tools: [],
     });
-    try { await session.bindExtensions({ mode: "print" }); }
-    finally { session.dispose(); }
+    try {
+      await session.bindExtensions({ mode: "print" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      try {
+        await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      } catch {
+        // Игнорируем ошибки при shutdown временной сессии
+      }
+      session.dispose();
+    }
   }
 
   async resolveModel(ref: ModelRef): Promise<ResolvedModel> {
@@ -122,7 +131,7 @@ export class PiAgentRuntime implements AgentRuntime {
       model = resolved.model;
       thinking = ref.thinking ?? resolved.thinkingLevel ?? thinking;
       if (!model) {
-        const matched = matchPiModel(ref.ref, runtime.getModels());
+        const matched = matchPiModel(ref.ref, runtime.getModels(), (p) => runtime.hasConfiguredAuth(p));
         if (matched) {
           model = matched.model;
           thinking = ref.thinking ?? matched.thinking ?? thinking;
@@ -140,7 +149,7 @@ export class PiAgentRuntime implements AgentRuntime {
       } else {
         model = resolveCliModel({ cliModel: ref.ref, modelRuntime: runtime }).model;
         if (!model) {
-          const matched = matchPiModel(ref.ref, runtime.getModels());
+          const matched = matchPiModel(ref.ref, runtime.getModels(), (p) => runtime.hasConfiguredAuth(p));
           if (matched) model = matched.model;
         }
       }
@@ -158,7 +167,7 @@ export class PiAgentRuntime implements AgentRuntime {
       settingsManager: settings,
       appendSystemPrompt: [spec.systemPromptAppend],
       noContextFiles: !spec.piResources.contextFiles,
-      noExtensions: !spec.piResources.extensions,
+      noExtensions: spec.role === "supervisor" || !spec.piResources.extensions,
       noSkills: !spec.piResources.skills,
       extensionFactories: [{ name: "teo-guard", factory: createGuardExtension(spec.guard, spec.cwd) }],
     });

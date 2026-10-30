@@ -117,6 +117,7 @@ export type MinimalModel = {
 export function matchPiModel<T extends MinimalModel>(
   entry: string,
   availableModels: readonly T[],
+  isAuthorized?: (provider: string) => boolean,
 ): { model: T; thinking: ThinkingLevel | null } | null {
   const { modelName, thinking } = parseModelEntry(entry);
   if (modelName.toLowerCase() === "default") return null;
@@ -124,17 +125,30 @@ export function matchPiModel<T extends MinimalModel>(
   const qLower = modelName.toLowerCase();
   const qFixed = qLower.replace(/\bgfp\b|\bgtp\b/g, "gpt");
 
+  const filterMatches = (candidates: T[]): T | undefined => {
+    if (candidates.length === 0) return undefined;
+    if (candidates.length === 1) return candidates[0];
+    if (isAuthorized) {
+      const authorized = candidates.filter((m) => isAuthorized(m.provider));
+      if (authorized.length > 0) return authorized[0];
+    }
+    return candidates[0];
+  };
+
   // 1. exact provider/id
-  const exactFull = availableModels.find((m) => `${m.provider}/${m.id}`.toLowerCase() === qFixed);
-  if (exactFull) return { model: exactFull, thinking };
+  const exactFull = availableModels.filter((m) => `${m.provider}/${m.id}`.toLowerCase() === qFixed);
+  const bestFull = filterMatches(exactFull);
+  if (bestFull) return { model: bestFull, thinking };
 
   // 2. exact id
-  const exactId = availableModels.find((m) => m.id.toLowerCase() === qFixed);
-  if (exactId) return { model: exactId, thinking };
+  const exactId = availableModels.filter((m) => m.id.toLowerCase() === qFixed);
+  const bestId = filterMatches(exactId);
+  if (bestId) return { model: bestId, thinking };
 
   // 3. exact name
-  const exactName = availableModels.find((m) => m.name.toLowerCase() === qFixed);
-  if (exactName) return { model: exactName, thinking };
+  const exactName = availableModels.filter((m) => m.name.toLowerCase() === qFixed);
+  const bestName = filterMatches(exactName);
+  if (bestName) return { model: bestName, thinking };
 
   // 4. token-based match
   const tokens = qFixed.split(/[\s/._:-]+/).filter(Boolean);
@@ -143,11 +157,8 @@ export function matchPiModel<T extends MinimalModel>(
       const target = `${m.provider} ${m.id} ${m.name}`.toLowerCase();
       return tokens.every((t) => target.includes(t));
     });
-    if (matched.length === 1 && matched[0]) return { model: matched[0], thinking };
-    // Если кандидатов несколько, предпочитаем те, у кого в name совпадают больше токенов или exact substring
-    const nameSub = matched.find((m) => m.name.toLowerCase().includes(qFixed) || qFixed.includes(m.name.toLowerCase()));
-    if (nameSub) return { model: nameSub, thinking };
-    if (matched[0]) return { model: matched[0], thinking };
+    const bestToken = filterMatches(matched);
+    if (bestToken) return { model: bestToken, thinking };
   }
 
   return null;
