@@ -3,6 +3,7 @@
 import { mkdir, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getStage, type LoadedPolicy } from "../domain/policy.js";
+import { isFinished } from "../domain/task-state.js";
 import { PolicyError, TaskCorruptedError, TaskNotFoundError, type LockLostError } from "../errors/errors.js";
 import type { ProcessEntry } from "../policy/process-catalog.js";
 import { EMPTY_MODELS_CONFIG, type ModelsConfig } from "../policy/models-config.js";
@@ -144,9 +145,36 @@ export class ProjectStore {
     return out;
   }
 
-  /** Ключ задачи в том регистре, в котором создан каталог; null — задачи нет. */
+  /** Ключи задач, отсортированные: активные по дате обновления (новые первыми), затем завершённые. */
+  async listKeysSorted(): Promise<string[]> {
+    const tasks = await this.listTasks();
+    const active = tasks.filter((t) => t.ok && !isFinished(t.snapshot.state));
+    const finished = tasks.filter((t) => t.ok && isFinished(t.snapshot.state));
+    const corrupted = tasks.filter((t) => !t.ok);
+    const byUpdate = (a: TaskListing, b: TaskListing) => {
+      if (!a.ok || !b.ok) return 0;
+      return new Date(b.snapshot.state.updatedAt).getTime() - new Date(a.snapshot.state.updatedAt).getTime();
+    };
+    active.sort(byUpdate);
+    finished.sort(byUpdate);
+    return [...active, ...finished, ...corrupted].map((t) => t.key);
+  }
+
+  /** Ключ задачи в том регистре, в котором создан каталог; либо по 1-based номеру в списке; null — задачи нет. */
   async resolveKey(input: string): Promise<string | null> {
-    return findCaseInsensitive(input, await this.tasks.listKeys());
+    const rawKeys = await this.tasks.listKeys();
+    const direct = findCaseInsensitive(input, rawKeys);
+    if (direct) return direct;
+
+    const trimmed = input.trim();
+    if (/^\d+$/.test(trimmed)) {
+      const idx = parseInt(trimmed, 10);
+      const sortedKeys = await this.listKeysSorted();
+      if (idx >= 1 && idx <= sortedKeys.length) {
+        return sortedKeys[idx - 1] ?? null;
+      }
+    }
+    return null;
   }
 
   /** Ключ существующей задачи или TaskNotFoundError (exit 4). */

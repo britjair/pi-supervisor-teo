@@ -11,6 +11,7 @@ import { runInteractive } from "./commands/interactive.js";
 import { runNew } from "./commands/new.js";
 import { runRecover } from "./commands/recover.js";
 import { runResume } from "./commands/run-task.js";
+import { runSessions } from "./commands/sessions.js";
 import { runStatus } from "./commands/status.js";
 import { ExitCode, TeoError } from "./errors/errors.js";
 import { msg } from "./ui/messages.js";
@@ -139,6 +140,13 @@ export async function main(argv: readonly string[]): Promise<number> {
       const o = cmd.opts<{ now?: boolean; wait?: boolean }>();
       return runResume(ctx, cmd.args[0] ?? "", { checkNow: o.now === true, noWait: o.wait === false });
     }));
+
+  program
+    .command("sessions")
+    .alias("list")
+    .description("показать пронумерованный список сессий и задач проекта")
+    .option("--json", msg.cli.json)
+    .action(run((ctx, cmd) => runSessions(ctx, { json: cmd.opts<{ json?: boolean }>().json === true })));
 
   program
     .command("status")

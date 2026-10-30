@@ -25,7 +25,7 @@ export type TaskViewData = {
 
 export type ViewContext = { now: Date; style: Style };
 
-function table(rows: string[][], gap = "  "): string[] {
+export function table(rows: string[][], gap = "  "): string[] {
   const widths: number[] = [];
   for (const r of rows) r.forEach((c, i) => (widths[i] = Math.max(widths[i] ?? 0, [...c].length)));
   return rows.map((r) =>

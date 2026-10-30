@@ -77,7 +77,7 @@ scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi/teo && cp examples/processes/*.md /tmp
 - `test/integration/extension-host.test.ts` — X2 на фейковом `ExtensionAPI`: привязка и восстановление, lock, роль, tools/model, guard, журнал чата, stop.
 - `test/integration/extension-supervisor.test.ts` — X3: report tools, settle, отдельный supervisor, continue/restart/transition/ask_human и полный процесс подбора автомобиля в одной сессии; `test/e2e/extension-host.test.ts` — настоящие host-модель и supervisor доводят задачу до terminal.
 - `test/integration/extension-lifecycle.test.ts` — X4: `userSession: new`, `/teo next`, таймер recheck, `/teo pause`/resume и recovery после закрытия Pi.
-- Полный обычный прогон X4 + D44–D49: 53 файла, 514 тестов; реальный Pi e2e: 6 тестов. Отдельно: `scripts/e2e.sh test/e2e/extension-host.test.ts`.
+- Полный обычный прогон X4 + D44–D49: 54 файла, 519 тестов; реальный Pi e2e: 6 тестов. Отдельно: `scripts/e2e.sh test/e2e/extension-host.test.ts`.
 - `scripts/e2e.sh` монтирует только нужные файлы из `~/.pi/agent` **read-only**, копирует их во временный контейнер и удаляет список установленных пакетов/расширений из копии настроек. Исходный `~/.pi` не изменяется. Для другого источника: `TEO_E2E_AGENT_DIR=<каталог> scripts/e2e.sh`. E2E делает реальные вызовы модели и может стоить денег.
 
 ## Установка на хост
@@ -102,7 +102,7 @@ pi -e ~/code/pi-supervisor-teo        # попробовать в одной с�
 pi install ~/code/pi-supervisor-teo   # подключить насовсем (пишет в ~/.pi/agent/settings.json)
 ```
 
-В сессии: `/teo start [KEY]`, `/teo goal <цель>`, `/teo resume KEY`, `/teo next`, `/teo pause`, `/teo recover KEY`, `/teo stop`, `/teo status`, `/teo history KEY`, `/teo help`.
+В сессии: `/teo start [KEY]`, `/teo goal <цель>`, `/teo sessions` (список с номерами и выбор), `/teo resume [KEY/№]`, `/teo next`, `/teo pause`, `/teo recover KEY`, `/teo stop`, `/teo status`, `/teo history KEY`, `/teo help`.
 
 Затем:
 

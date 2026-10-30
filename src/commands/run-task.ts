@@ -56,8 +56,9 @@ export async function executeTask(ctx: AppContext, store: ProjectStore, key: str
   }
 }
 
-export async function runResume(ctx: AppContext, key: string, opts: { noWait?: boolean; checkNow?: boolean }): Promise<number> {
+export async function runResume(ctx: AppContext, keyInput: string, opts: { noWait?: boolean; checkNow?: boolean }): Promise<number> {
   const { store } = await startCommand(ctx);
+  const key = await store.requireKey(keyInput);
   await store.tasks.readState(key); // не создавать .teo и lock для несуществующей задачи
   return executeTask(ctx, store, key, opts);
 }

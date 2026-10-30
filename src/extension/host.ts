@@ -32,6 +32,7 @@ import { UsageError } from "../errors/errors.js";
 import { GOAL_PROCESS } from "../policy/process-catalog.js";
 import { matchPiModel, resolveModelChain } from "../policy/models-config.js";
 import { defaultCooldownTracker } from "../util/model-exhaustion.js";
+import { collectSessionItems } from "../commands/sessions.js";
 import type { HeldLock } from "../state/lock-manager.js";
 import type { ProjectStore } from "../state/project-store.js";
 import { msg } from "../ui/messages.js";
@@ -149,16 +150,70 @@ export class ExtensionHost {
     await this.bind(ctx, state.key, { kickoff: true });
   }
 
-  /** /teo resume KEY: продолжить существующую задачу или снять явную паузу. */
+  /** /teo sessions / list: пронумерованный список сессий и интерактивный выбор для возобновления. */
+  async sessions(ctx: ExtensionCommandContext): Promise<void> {
+    const { ctx: app } = extensionAppContext(ctx.cwd, this.homeDir);
+    const { store } = await startCommand(app);
+    const items = await collectSessionItems(store, app.clock.now());
+
+    if (items.length === 0) {
+      if (!ctx.hasUI && ctx.mode === "print") process.stderr.write(msg.menu.noTasks + "\n");
+      else ctx.ui.notify(msg.menu.noTasks, "info");
+      return;
+    }
+
+    if (ctx.hasUI && ctx.mode !== "print") {
+      const options = [...items.map((i) => i.label), msg.extension.cancelSelection];
+      const picked = await ctx.ui.select(msg.extension.chooseSessionToResume, options);
+      if (!picked || picked === msg.extension.cancelSelection) return;
+      const found = items.find((i) => i.label === picked);
+      if (found) {
+        await this.resume(ctx, found.key);
+      }
+      return;
+    }
+
+    const lines = [
+      msg.extension.sessionsTitle(items.length),
+      ...items.map((i) => `  ${i.label}`),
+      "",
+      msg.extension.resumeHint,
+    ];
+    const text = lines.join("\n");
+    if (ctx.mode === "print") process.stderr.write(text + "\n");
+    else ctx.ui.notify(text, "info");
+  }
+
+  /** /teo resume [KEY/№]: продолжить существующую задачу или снять явную паузу. */
   async resume(ctx: ExtensionCommandContext, keyArg: string | undefined): Promise<void> {
-    if (!keyArg) throw new UsageError(msg.extension.resumeUsage);
-    if (this.binding?.key.toUpperCase() === keyArg.toUpperCase()) {
+    const { ctx: app } = extensionAppContext(ctx.cwd, this.homeDir);
+    const { store } = await startCommand(app);
+    let keyInput = keyArg?.trim();
+
+    if (!keyInput) {
+      const items = await collectSessionItems(store, app.clock.now());
+      if (items.length === 0) {
+        ctx.ui.notify(msg.menu.noTasks, "info");
+        return;
+      }
+      const activeItems = items.filter((i) => !i.isFinished);
+      const targetItems = activeItems.length > 0 ? activeItems : items;
+      const picked = await ctx.ui.select(msg.extension.chooseSessionToResume, targetItems.map((i) => i.label));
+      if (!picked) return;
+      const found = targetItems.find((i) => i.label === picked);
+      if (!found) return;
+      keyInput = found.key;
+    }
+
+    const key = await store.requireKey(keyInput);
+
+    if (this.binding?.key.toUpperCase() === key.toUpperCase()) {
       const state = await this.binding.store.tasks.load(this.binding.key);
       if (state.hostSession?.paused) return this.resumePaused(this.binding, ctx);
       return ctx.ui.notify(msg.extension.alreadyBound(this.binding.key), "info");
     }
     this.assertFree();
-    const b = await this.bind(ctx, keyArg, { kickoff: false });
+    const b = await this.bind(ctx, key, { kickoff: false });
     if (b) await this.resumeBoundWorkflow(b, ctx, true);
   }
 
