@@ -2,12 +2,14 @@
 
 import path from "node:path";
 import { evaluationPrompt, protocolRetryPrompt, providerRetryPrompt, type TriggerData } from "../agents/prompts/supervisor-prompts.js";
-import { ModelUnavailableError, type ModelRef } from "../agents/runtime.js";
+import { ModelUnavailableError, type ModelRef, type ResolvedModel } from "../agents/runtime.js";
 import { supervisorSessionSpec } from "../agents/session-spec.js";
 import type { TaskEvent } from "../domain/events.js";
 import { getStage } from "../domain/policy.js";
 import { haltedState, type TaskState } from "../domain/task-state.js";
 import { argsPreview } from "../util/redact.js";
+import { resolveModelChain } from "../policy/models-config.js";
+import { defaultCooldownTracker, isModelExhaustedError, parseResetCooldownMs } from "../util/model-exhaustion.js";
 import type { EngineCore } from "./context.js";
 import type { ExitOutcome } from "./outcome.js";
 import { InterruptRequest } from "./outcome.js";
@@ -24,9 +26,82 @@ async function block(core: EngineCore, state: TaskState, code: string, message: 
   return { kind: "blocked", code };
 }
 
-function supervisorModelRef(core: EngineCore): ModelRef {
+function supervisorModelRef(core: EngineCore, refString?: string): ModelRef {
   const sv = core.policy.spec.supervisor;
-  return { ref: sv.model, thinking: sv.thinking, extensions: sv.piResources.extensions === "inherit" };
+  return { ref: refString ?? sv.model, thinking: sv.thinking, extensions: sv.piResources.extensions === "inherit" };
+}
+
+type ModelSelection =
+  | { kind: "selected"; model: ResolvedModel; index: number; ref: string }
+  | { kind: "exhausted"; earliestResetMs: number }
+  | { kind: "unavailable"; error: string };
+
+async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise<ModelSelection> {
+  let hasExhausted = false;
+  let lastError = "Нет доступных моделей для supervisor-а";
+  const now = core.clock.now().getTime();
+  const checkedModels: Array<{ provider: string; modelId: string }> = [];
+
+  for (let i = 0; i < chain.length; i++) {
+    const refStr = chain[i];
+    if (!refStr) continue;
+    try {
+      const resolved = await core.runtime.resolveModel(supervisorModelRef(core, refStr));
+      const [provider = "unknown", modelId = "unknown"] = resolved.id.split("/");
+      checkedModels.push({ provider, modelId });
+      if (defaultCooldownTracker.isExhausted(provider, modelId, now)) {
+        hasExhausted = true;
+        continue;
+      }
+      return { kind: "selected", model: resolved, index: i, ref: refStr };
+    } catch (err) {
+      if (err instanceof ModelUnavailableError) {
+        lastError = err.message;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (hasExhausted) {
+    const earliest = defaultCooldownTracker.getEarliestResetMs(checkedModels, now) ?? 30 * 60 * 1000;
+    return { kind: "exhausted", earliestResetMs: earliest };
+  }
+  return { kind: "unavailable", error: lastError };
+}
+
+async function scheduleSupervisorExhaustionWait(core: EngineCore, state: TaskState, dueAt: string, delayMs: number): Promise<void> {
+  const delayMinutes = Math.max(1, Math.ceil(delayMs / 60_000));
+  await core.store.tasks.commit(
+    core.key,
+    (s, c) => {
+      const decisionId = core.ids.next();
+      c.emit("wait.scheduled", "cli", {
+        decisionId,
+        number: 1,
+        maxCount: 999,
+        waitingFor: "сброс лимита модели supervisor-а",
+        delayMinutes,
+        dueAt,
+      });
+      return {
+        ...s,
+        status: "active",
+        phase: "waiting",
+        wait: {
+          decisionId,
+          number: 1,
+          waitingFor: "сброс лимита модели supervisor-а",
+          message: "Лимит модели supervisor-а исчерпан. Ожидание сброса лимита.",
+          delayMinutes,
+          scheduledAt: c.now,
+          dueAt,
+          targetPhase: "supervisor_pending",
+        },
+      };
+    },
+    { expectedVersion: state.version },
+  );
 }
 
 function eventLine(e: TaskEvent): string {
@@ -112,13 +187,21 @@ export async function startSupervisor(core: EngineCore, state: TaskState): Promi
   if (limits.maxCyclesPerStage !== null && counts && state.stageCycles + 1 > limits.maxCyclesPerStage) {
     return block(core, state, "STAGE_CYCLE_LIMIT", `на этапе «${stage.title}» исчерпан лимит циклов supervisor-а (${limits.maxCyclesPerStage})`);
   }
-  let model;
-  try {
-    model = await core.runtime.resolveModel(supervisorModelRef(core));
-  } catch (err) {
-    if (!(err instanceof ModelUnavailableError)) throw err;
-    return block(core, state, "MODEL_UNAVAILABLE", `модель supervisor-а ${core.policy.spec.supervisor.model} недоступна: ${err.message}`);
+  const chain = resolveModelChain({
+    role: "supervisor",
+    configuredModel: core.policy.spec.supervisor.model,
+    modelsConfig: core.store.modelsConfig,
+  });
+  const selection = await selectSupervisorModel(core, chain);
+  if (selection.kind === "unavailable") {
+    return block(core, state, "MODEL_UNAVAILABLE", `модель supervisor-а ${core.policy.spec.supervisor.model} недоступна: ${selection.error}`);
   }
+  if (selection.kind === "exhausted") {
+    const dueAt = new Date(core.clock.now().getTime() + selection.earliestResetMs).toISOString();
+    await scheduleSupervisorExhaustionWait(core, state, dueAt, selection.earliestResetMs);
+    return { kind: "waiting_recheck", dueAt };
+  }
+  const model = selection.model;
   const spec = supervisorSessionSpec(core, model);
   const fullPolicy = state.supervisor.lastPolicyHashShown !== state.policyHash || core.pool.takeCompacted(spec.file);
   const cycle = state.supervisor.cycle + 1;
@@ -137,7 +220,17 @@ export async function startSupervisor(core: EngineCore, state: TaskState): Promi
     { expectedVersion: state.version },
   );
   // Версия после записи supervisor.started — и есть expectedStateVersion цикла
-  core.cycle = { cycle, decisionRecorded: false, invalidCount: 0, protocolRetriesUsed: 0, technicalRetriesUsed: 0, version: next.version };
+  core.cycle = {
+    cycle,
+    decisionRecorded: false,
+    invalidCount: 0,
+    protocolRetriesUsed: 0,
+    technicalRetriesUsed: 0,
+    version: next.version,
+    modelUsed: model.id,
+    modelChain: chain,
+    modelChainIndex: selection.index,
+  };
   const events = await core.events();
   const prompt = evaluationPrompt({
     promptId: core.ids.next(),
@@ -189,10 +282,76 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
   const resend = async (prompt: string) => {
     core.pool.start(key, active.handle, prompt, { parent: core.signal, timeoutMs: limits.supervisorTimeoutMinutes * 60_000 });
   };
-  if (outcome.kind === "error" && mem.technicalRetriesUsed < limits.technicalRetries) {
-    mem.technicalRetriesUsed++;
-    await core.sleep(limits.technicalRetryDelaySeconds * 1000);
-    return resend(providerRetryPrompt({ promptId: core.ids.next(), cycle: mem.cycle, version: after.version }));
+  if (outcome.kind === "error") {
+    if (isModelExhaustedError(outcome.message)) {
+      const [provider = "unknown", modelId = "unknown"] = (mem.modelUsed ?? "").split("/");
+      const cooldownMs = parseResetCooldownMs(outcome.message) ?? 30 * 60 * 1000;
+      const record = defaultCooldownTracker.recordExhausted(provider, modelId, cooldownMs, outcome.message, core.clock.now().getTime());
+      const resetAt = new Date(record.exhaustedUntil).toISOString();
+      await core.store.tasks.appendDirect(core.key, "model.exhausted", "cli", {
+        provider,
+        modelId,
+        resetAt,
+        reason: outcome.message,
+      });
+
+      const chain = mem.modelChain ?? [core.policy.spec.supervisor.model];
+      const remainingChain = chain.slice((mem.modelChainIndex ?? 0) + 1);
+      const fallbackSelection = await selectSupervisorModel(core, remainingChain);
+      if (fallbackSelection.kind === "selected") {
+        const nextModel = fallbackSelection.model;
+        await core.store.tasks.appendDirect(core.key, "model.fallback", "cli", {
+          role: "supervisor",
+          fromModel: mem.modelUsed ?? "unknown",
+          toModel: nextModel.id,
+          reason: outcome.message,
+        });
+        core.reporter.emit({
+          type: "info",
+          text: `Переключение supervisor-а на резервную модель ${nextModel.id} (лимит ${mem.modelUsed} исчерпан)`,
+        });
+        mem.modelUsed = nextModel.id;
+        mem.modelChainIndex = (mem.modelChainIndex ?? 0) + 1 + fallbackSelection.index;
+        mem.technicalRetriesUsed = 0;
+        const spec = supervisorSessionSpec(core, nextModel);
+        const handle = await core.pool.open(spec);
+        const events = await core.events();
+        const stage = getStage(core.policy.spec, after.stage);
+        if (!stage || stage.kind !== "work") throw new Error("нет рабочего этапа для supervisor prompt");
+        const fullPolicy = after.supervisor.lastPolicyHashShown !== after.policyHash;
+        const prompt = evaluationPrompt({
+          promptId: core.ids.next(),
+          cycle: mem.cycle,
+          key: after.key,
+          title: after.title,
+          version: after.version,
+          now: core.clock.now(),
+          policyHash: after.policyHash,
+          policyRaw: fullPolicy ? core.policy.raw : null,
+          spec: core.policy.spec,
+          stage,
+          stageEnteredAt: after.stageEnteredAt,
+          stageCycles: after.stageCycles,
+          consecutiveRestarts: after.consecutiveRestarts,
+          maxRestarts: limits.maxConsecutiveRestarts,
+          rechecks: stage.recheck ? { count: after.stageRechecks.count, waitedMinutes: after.stageRechecks.waitedMinutes } : null,
+          trigger: await triggerData(core, after, events),
+          recentEvents: events.slice(-RECENT_EVENTS).map(eventLine),
+        });
+        core.pool.start(key, handle, prompt, { parent: core.signal, timeoutMs: limits.supervisorTimeoutMinutes * 60_000 });
+        return;
+      }
+
+      core.cycle = null;
+      await scheduleSupervisorExhaustionWait(core, after, resetAt, cooldownMs);
+      return { kind: "waiting_recheck", dueAt: resetAt };
+    }
+
+    if (mem.technicalRetriesUsed < limits.technicalRetries) {
+      mem.technicalRetriesUsed++;
+      await core.sleep(limits.technicalRetryDelaySeconds * 1000);
+      return resend(providerRetryPrompt({ promptId: core.ids.next(), cycle: mem.cycle, version: after.version }));
+    }
   }
   if (outcome.kind !== "error" && mem.protocolRetriesUsed < limits.supervisorProtocolRetries) {
     mem.protocolRetriesUsed++;

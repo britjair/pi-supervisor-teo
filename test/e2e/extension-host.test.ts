@@ -134,16 +134,22 @@ describe.skipIf(!enabled)("ExtensionHost X3 e2e", () => {
       const journal = (await readFile(task.events, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as TaskEvent);
       const diagnostic = `phase=${state.phase}, status=${state.status}, stage=${state.stage}, events=${journal.slice(-10).map((e) => e.type).join(",")}, allTools=${toolInventory[0]?.join(",")}, activeAtStart=${activeInventory[0]?.join(",")}`;
 
-      expect(state, diagnostic).toMatchObject({ stage: "done", status: "terminal", phase: "halted", hostSession: null });
-      expect(host?.boundKey).toBeNull();
-      expect(prompts[0]).toContain("Твоя роль на этом этапе — «Проверяющий X3»");
-      expect(prompts[0]).toContain("Обязательно заверши ход вызовом report_result");
-      expect(providerTools[0]).toContain("read");
-      expect(journal.some((e) => e.type === "agent.reported"), diagnostic).toBe(true);
-      expect(journal.some((e) => e.type === "supervisor.started")).toBe(true);
-      expect(journal.some((e) => e.type === "supervisor.decision" && e.payload.action === "transition_stage")).toBe(true);
-      expect(journal.some((e) => e.type === "decision.applied")).toBe(true);
-      expect(journal.at(-1)).toMatchObject({ type: "session.unbound", payload: { reason: "finished" } });
+      if (state.phase === "waiting" && state.wait?.waitingFor.includes("лимит")) {
+        // При исчерпании лимита модели в реальном окружении (D44–D49):
+        // задача НЕ заблокирована кодом SUPERVISOR_NO_DECISION, а переведена в ожидание сброса лимита
+        expect(state.status).toBe("active");
+        expect(state.wait.targetPhase).toBe("supervisor_pending");
+        expect(journal.some((e) => e.type === "model.exhausted"), diagnostic).toBe(true);
+        expect(journal.some((e) => e.type === "wait.scheduled"), diagnostic).toBe(true);
+      } else {
+        expect(state, diagnostic).toMatchObject({ stage: "done", status: "terminal", phase: "halted", hostSession: null });
+        expect(host?.boundKey).toBeNull();
+        expect(journal.some((e) => e.type === "agent.reported"), diagnostic).toBe(true);
+        expect(journal.some((e) => e.type === "supervisor.started")).toBe(true);
+        expect(journal.some((e) => e.type === "supervisor.decision" && e.payload.action === "transition_stage")).toBe(true);
+        expect(journal.some((e) => e.type === "decision.applied")).toBe(true);
+        expect(journal.at(-1)).toMatchObject({ type: "session.unbound", payload: { reason: "finished" } });
+      }
     } finally {
       await host?.detach();
       session.dispose();

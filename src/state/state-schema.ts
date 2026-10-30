@@ -89,6 +89,7 @@ export const taskStateSchema = z.object({
       delayMinutes: z.number().min(0),
       scheduledAt: iso,
       dueAt: iso,
+      targetPhase: z.enum(["agent_pending", "supervisor_pending"]).nullable().default(null),
     })
     .nullable(),
   supervisor: z.object({

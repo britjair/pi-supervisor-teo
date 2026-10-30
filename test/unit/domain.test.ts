@@ -79,6 +79,7 @@ const wait = {
   delayMinutes: 30,
   scheduledAt: NOW.toISOString(),
   dueAt: "2026-10-25T10:30:00.000Z",
+  targetPhase: null,
 };
 
 describe("инварианты state", () => {

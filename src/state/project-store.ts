@@ -5,6 +5,7 @@ import path from "node:path";
 import { getStage, type LoadedPolicy } from "../domain/policy.js";
 import { PolicyError, TaskCorruptedError, TaskNotFoundError, type LockLostError } from "../errors/errors.js";
 import type { ProcessEntry } from "../policy/process-catalog.js";
+import { EMPTY_MODELS_CONFIG, type ModelsConfig } from "../policy/models-config.js";
 import { PolicySnapshotStore } from "../policy/snapshot-store.js";
 import type { Clock } from "../util/clock.js";
 import { onCleanup } from "../util/cleanup.js";
@@ -22,6 +23,7 @@ export type ProjectDeps = {
   processes: readonly ProcessEntry[];
   /** Каталог процессов: путь файла процесса, которого нет в списке */
   processesDir: string;
+  modelsConfig?: ModelsConfig | undefined;
   clock: Clock;
   ids: IdGenerator;
   faults?: FaultInjector;
@@ -76,6 +78,10 @@ export class ProjectStore {
 
   get processes(): readonly ProcessEntry[] {
     return this.deps.processes;
+  }
+
+  get modelsConfig(): ModelsConfig {
+    return this.deps.modelsConfig ?? EMPTY_MODELS_CONFIG;
   }
 
   process(name: string): ProcessEntry | null {

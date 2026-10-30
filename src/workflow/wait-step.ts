@@ -30,11 +30,22 @@ const minutesBetween = (fromIso: string, to: Date) => Math.max(0, Math.round((to
 export async function finishWait(core: EngineCore, state: TaskState, reason: "due" | "skipped_by_human"): Promise<void> {
   const wait = state.wait;
   if (!wait) return;
+  const targetPhase = wait.targetPhase ?? "agent_pending";
   await core.store.tasks.commit(
     core.key,
     (s, c) => {
       const waited = minutesBetween(wait.scheduledAt, new Date(c.now));
       c.emit("wait.finished", "cli", { decisionId: wait.decisionId, reason, waitedMinutes: waited, responseRef: null });
+      if (targetPhase === "supervisor_pending") {
+        return {
+          ...s,
+          status: "active",
+          phase: "supervisor_pending",
+          supervisor: { ...s.supervisor, trigger: { kind: "reevaluate", ref: null } },
+          stageRechecks: { ...s.stageRechecks, waitedMinutes: s.stageRechecks.waitedMinutes + waited },
+          wait: null,
+        };
+      }
       return {
         ...s,
         status: "active",

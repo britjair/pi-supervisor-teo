@@ -17,6 +17,7 @@ import type { ProjectStore } from "../state/project-store.js";
 import { undeliveredOutbox } from "../state/state-store.js";
 import { TaskCorruptedError } from "../errors/errors.js";
 import { msg } from "../ui/messages.js";
+import { EMPTY_MODELS_CONFIG } from "../policy/models-config.js";
 import { issueLines, policyProblemLines } from "../ui/plain/policy-report.js";
 import { lockText } from "../ui/plain/task-views.js";
 import { tildify } from "../util/strings.js";
@@ -120,14 +121,17 @@ export async function collectDoctorChecks(
         if (cli && cli !== probe.sdkVersion) checks.push({ id: "pi.version", level: "warning", title: msg.doctor.piVersionMismatch(probe.sdkVersion, cli), details: [] });
         else if (!cli) checks.push({ id: "pi.version", level: "info", title: msg.doctor.piCliMissing, details: [] });
       }
-      // Модели всех валидных процессов: каждая разрешается один раз
+      // Модели всех валидных процессов и models.md: каждая разрешается один раз
+      const modelsConfig = await ctx.processes.loadModels().catch(() => EMPTY_MODELS_CONFIG);
       const refs = [
-        ...new Set(
-          valid.flatMap((policy) => [
+        ...new Set([
+          ...valid.flatMap((policy) => [
             ...agentList(policy.spec).map((a) => [a.model, a.thinking, a.piResources.extensions] as const),
             [policy.spec.supervisor.model, policy.spec.supervisor.thinking, policy.spec.supervisor.piResources.extensions] as const,
           ]).map((r) => JSON.stringify(r)),
-        ),
+          ...Object.values(modelsConfig.roles).flatMap((list) => list.map((m) => JSON.stringify([m, null, "inherit"] as const))),
+          ...Object.values(modelsConfig.profiles).flatMap((list) => list.map((m) => JSON.stringify([m, null, "inherit"] as const))),
+        ]),
       ];
       for (const encoded of refs) {
         const [ref, thinking, extensions] = JSON.parse(encoded) as [string, ThinkingLevel | null, "inherit" | "none"];
@@ -157,7 +161,8 @@ export async function collectDoctorChecks(
   }
 
   // Хранилище: только если .teo уже есть, doctor его не создаёт
-  const store = openProject(ctx, { project, processes });
+  const modelsConfig = await ctx.processes.loadModels().catch(() => EMPTY_MODELS_CONFIG);
+  const store = openProject(ctx, { project, processes, modelsConfig });
   const teoExists = await store.teoExists();
   if (teoExists) {
     checks.push(...(await storageChecks(ctx, store)));

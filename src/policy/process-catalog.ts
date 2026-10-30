@@ -10,12 +10,16 @@ import { fileURLToPath } from "node:url";
 import { PROCESS_NAME_RE, type LoadedPolicy } from "../domain/policy.js";
 import { PolicyError } from "../errors/errors.js";
 import { loadPolicyFile } from "./policy-loader.js";
+import { loadModelsConfigFile, type ModelsConfig } from "./models-config.js";
 
 export { PROCESS_NAME_RE };
 const EXT = ".md";
 
 /** Встроенный процесс режима цели: `teo new --goal` (D35). */
 export const GOAL_PROCESS = "goal";
+
+/** Зарезервированные имена файлов в каталоге процессов, которые не являются процессами. */
+export const RESERVED_PROCESS_NAMES = new Set(["models"]);
 
 export type ProcessEntry =
   | { name: string; path: string; builtin: boolean; ok: true; policy: LoadedPolicy }
@@ -55,9 +59,17 @@ export class ProcessCatalog {
     return path.join(this.dir, `${name}${EXT}`);
   }
 
+  get modelsPath(): string {
+    return path.join(this.dir, `models${EXT}`);
+  }
+
+  async loadModels(): Promise<ModelsConfig> {
+    return loadModelsConfigFile(this.modelsPath);
+  }
+
   /** Пользовательские файлы *.md: имена процессов и файлы с недопустимым именем (их показывает doctor). */
   async scan(): Promise<{ names: string[]; badNames: string[] }> {
-    const md = await mdNames(this.dir);
+    const md = (await mdNames(this.dir)).filter((f) => !RESERVED_PROCESS_NAMES.has(f.slice(0, -EXT.length)));
     const names = md.map((e) => e.slice(0, -EXT.length));
     return { names: names.filter((n) => PROCESS_NAME_RE.test(n)), badNames: md.filter((_, i) => !PROCESS_NAME_RE.test(names[i] ?? "")) };
   }

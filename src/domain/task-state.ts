@@ -93,6 +93,7 @@ export type WaitState = {
   delayMinutes: number;
   scheduledAt: string;
   dueAt: string;
+  targetPhase: "agent_pending" | "supervisor_pending" | null;
 };
 
 export type HumanRequest = {

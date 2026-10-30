@@ -71,6 +71,8 @@ export type EventPayloads = {
   };
   "runtime.interrupted": { signal: string | null; phase: Phase; runId: string | null };
   "runtime.recovered": { phase: Phase; action: string; details: Record<string, unknown> };
+  "model.exhausted": { provider: string; modelId: string; resetAt: string; reason: string };
+  "model.fallback": { role: string; fromModel: string; toModel: string; reason: string };
 };
 
 export type EventType = keyof EventPayloads;

@@ -10,6 +10,7 @@ import { mapPiEvent } from "./pi-event-mapper.js";
 import { inspectPiSessionFile, readPiTranscript } from "./session-inspector.js";
 import { toPiTool } from "./pi-tool-adapter.js";
 import { redactString } from "../../util/redact.js";
+import { matchPiModel } from "../../policy/models-config.js";
 
 class PiHandle implements AgentSessionHandle {
   readonly sessionFile: string;
@@ -120,6 +121,13 @@ export class PiAgentRuntime implements AgentRuntime {
       const resolved = resolveCliModel({ cliModel: ref.ref, modelRuntime: runtime });
       model = resolved.model;
       thinking = ref.thinking ?? resolved.thinkingLevel ?? thinking;
+      if (!model) {
+        const matched = matchPiModel(ref.ref, runtime.getModels());
+        if (matched) {
+          model = matched.model;
+          thinking = ref.thinking ?? matched.thinking ?? thinking;
+        }
+      }
     }
     if ((!model || !runtime.hasConfiguredAuth(model.provider)) && ref.extensions && !this.extensionsLoaded) {
       try { await this.loadExtensionProviders(); }
@@ -131,6 +139,10 @@ export class PiAgentRuntime implements AgentRuntime {
         model ??= (await runtime.getAvailable())[0];
       } else {
         model = resolveCliModel({ cliModel: ref.ref, modelRuntime: runtime }).model;
+        if (!model) {
+          const matched = matchPiModel(ref.ref, runtime.getModels());
+          if (matched) model = matched.model;
+        }
       }
     }
     if (!model) throw new ModelUnavailableError("Нет доступной модели. Проверьте авторизацию и настройки Pi.");

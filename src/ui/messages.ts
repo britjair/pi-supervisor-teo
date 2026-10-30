@@ -235,6 +235,10 @@ export const msg = {
     lockLost: (key: string) => `teo: lock проекта перехвачен другим процессом, задача ${key} больше не ведётся в этой сессии.`,
     modelMissing: (model: string, agent: string) => `teo: модель ${model} роли «${agent}» не найдена в Pi — остаётся текущая модель.`,
     modelUnavailable: (model: string, agent: string) => `teo: модель ${model} роли «${agent}» недоступна без авторизации — остаётся текущая модель.`,
+    modelFallback: (role: string, toModel: string, reason: string) => `teo: переключение роли «${role}» на резервную модель ${toModel} (${reason}).`,
+    modelsExhaustedWaiting: (key: string, dueAt: string, remaining: string) =>
+      `teo: ${key} · ⏳ ⚠ лимит моделей исчерпан · до ${dueAt} · осталось ${remaining}`,
+    agentModelsExhausted: (role: string) => `teo: лимиты всех моделей роли «${role}» исчерпаны. Ход приостановлен.`,
     status: (key: string, stage: string, agent: string, cycle: number) => `teo: ${key} · ${stage} · ${agent} · цикл ${cycle}`,
     statusPaused: (key: string) => `teo: ${key} · пауза`,
     statusNext: (key: string, stage: string) => `teo: ${key} · ${stage} · нужна новая сессия`,
@@ -807,6 +811,10 @@ export function eventSummary(e: TaskEvent): string {
       return `остановлено${e.payload.signal ? ` сигналом ${e.payload.signal}` : ""} в фазе ${e.payload.phase}`;
     case "runtime.recovered":
       return `восстановление: ${e.payload.action}`;
+    case "model.exhausted":
+      return `лимит модели ${e.payload.provider}/${e.payload.modelId} исчерпан (сброс в ${e.payload.resetAt})`;
+    case "model.fallback":
+      return `роль ${e.payload.role}: переключение с ${e.payload.fromModel} на ${e.payload.toModel} (${e.payload.reason})`;
     default:
       return "";
   }

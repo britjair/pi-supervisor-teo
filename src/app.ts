@@ -5,6 +5,7 @@
 import os from "node:os";
 import type { Readable, Writable } from "node:stream";
 import { ProcessCatalog, defaultProcessesDir, type ProcessEntry } from "./policy/process-catalog.js";
+import { EMPTY_MODELS_CONFIG, type ModelsConfig } from "./policy/models-config.js";
 import { detectProjectRoot, type ProjectRoot } from "./project/project-root.js";
 import { ProjectStore } from "./state/project-store.js";
 import type { HumanIO } from "./ui/human-io.js";
@@ -96,7 +97,7 @@ export function createAppContext(o: AppOptions): AppContext {
   };
 }
 
-export type Preflight = { project: ProjectRoot; processes: ProcessEntry[] };
+export type Preflight = { project: ProjectRoot; processes: ProcessEntry[]; modelsConfig: ModelsConfig };
 
 /**
  * Общий старт команд (05-cli-ui.md §1): project root (только чтение), затем preflight всех процессов.
@@ -116,15 +117,17 @@ export async function preflight(ctx: AppContext): Promise<Preflight> {
   // Встроенный процесс невалиден — это ошибка сборки пакета, а не конфигурации пользователя
   const builtinBroken = processes.find((p) => p.builtin && !p.ok);
   if (builtinBroken && !builtinBroken.ok) throw builtinBroken.error;
-  return { project, processes };
+  const modelsConfig = await ctx.processes.loadModels().catch(() => EMPTY_MODELS_CONFIG);
+  return { project, processes, modelsConfig };
 }
 
 /** Хранилище проекта. Ничего не создаёт: .teo появляется при первой mutating-операции. */
-export function openProject(ctx: AppContext, pf: { project: ProjectRoot; processes: readonly ProcessEntry[] }): ProjectStore {
+export function openProject(ctx: AppContext, pf: { project: ProjectRoot; processes: readonly ProcessEntry[]; modelsConfig?: ModelsConfig }): ProjectStore {
   const store = new ProjectStore({
     projectRoot: pf.project.root,
     processes: pf.processes,
     processesDir: ctx.processes.dir,
+    modelsConfig: pf.modelsConfig,
     clock: ctx.clock,
     ids: ctx.ids,
     faults: ctx.faults,

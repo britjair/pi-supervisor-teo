@@ -32,6 +32,10 @@ export type CycleMemory = {
   technicalRetriesUsed: number;
   /** Последний отправленный prompt цикла: повтор при ошибке провайдера */
   version: number;
+  modelUsed?: string;
+  modelChain?: string[];
+  modelChainIndex?: number;
+  lastPrompt?: string;
 };
 
 export interface EngineCore {

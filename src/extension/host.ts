@@ -30,6 +30,8 @@ import type { ReportBlockerInput, ReportResultInput } from "../domain/runs.js";
 import { isFinished, isHalted, type HumanRequest, type TaskState } from "../domain/task-state.js";
 import { UsageError } from "../errors/errors.js";
 import { GOAL_PROCESS } from "../policy/process-catalog.js";
+import { matchPiModel, resolveModelChain } from "../policy/models-config.js";
+import { defaultCooldownTracker } from "../util/model-exhaustion.js";
 import type { HeldLock } from "../state/lock-manager.js";
 import type { ProjectStore } from "../state/project-store.js";
 import { msg } from "../ui/messages.js";
@@ -300,6 +302,10 @@ export class ExtensionHost {
     for (;;) {
       if (!result.decision) {
         if (isHalted(result.state)) return this.finishResult(b, ctx, result.state);
+        if (result.state.phase === "waiting") {
+          await this.scheduleWaitTimer(b, ctx);
+          return { continue: false };
+        }
         await this.refreshStatus(b, ctx);
         return;
       }
@@ -693,7 +699,11 @@ export class ExtensionHost {
       const render = () => {
         if (this.binding !== b) return;
         const remaining = formatWaitRemaining(new Date(dueAt).getTime() - b.app.clock.now().getTime());
-        ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, dueAt, remaining));
+        if (state.wait?.targetPhase === "supervisor_pending") {
+          ctx.ui.setStatus("teo", msg.extension.modelsExhaustedWaiting(b.key, dueAt, remaining));
+        } else {
+          ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, dueAt, remaining));
+        }
       };
       render();
       b.waitStatusTimer = setInterval(render, 1000);
@@ -720,9 +730,13 @@ export class ExtensionHost {
       b.waitTimer = setTimeout(() => this.fireWaitTimer(b, ctx).catch((err) => ctx.ui.notify(errorText(b.app, err), "warning")), 1000);
       return;
     }
-    const { waitingFor, message } = state.wait;
+    const { waitingFor, message, targetPhase } = state.wait;
     this.clearWaitTimer(b);
     await b.workflow.finishWaiting();
+    if (targetPhase === "supervisor_pending") {
+      await this.resumeBoundWorkflow(b, ctx, true);
+      return;
+    }
     this.pi.sendMessage({ customType: "teo-recheck", content: msg.extension.recheckDue(waitingFor, message), display: true }, { triggerTurn: true });
   }
 
@@ -779,21 +793,70 @@ export class ExtensionHost {
     ctx.ui.setStatus("teo", msg.extension.status(view.state.key, view.stage.title, view.agent.title, view.state.supervisor.cycle));
   }
 
-  /** Модель роли (D38): только если у агента не default; один раз на этап. */
+  /** Модель роли (D38, D46, D48): fallback-цепочка моделей; переключение только при смене. */
   private async applyModel(b: Binding, view: StageView, ctx: ExtensionContext): Promise<void> {
     const stageKey = `${view.state.stage}:${view.state.stageEntryEventId}`;
     if (b.modelAppliedFor === stageKey) return;
     b.modelAppliedFor = stageKey;
-    const ref = parseModelRef(view.agent.model);
-    if (!ref || ref.kind === "default") return;
-    const model = ctx.modelRegistry.find(ref.provider, ref.modelId);
-    if (!model) return ctx.ui.notify(msg.extension.modelMissing(view.agent.model, view.agent.title), "warning");
-    if (ctx.model?.provider !== model.provider || ctx.model?.id !== model.id) {
-      const changed = await this.pi.setModel(model);
-      if (!changed) return ctx.ui.notify(msg.extension.modelUnavailable(view.agent.model, view.agent.title), "warning");
+
+    const chain = resolveModelChain({
+      role: view.agent.id,
+      configuredModel: view.agent.model,
+      modelsConfig: b.store.modelsConfig,
+    });
+
+    const available = (ctx.scopedModels ?? []).map((s) => s.model);
+    const now = b.app.clock.now().getTime();
+
+    for (let i = 0; i < chain.length; i++) {
+      const entry = chain[i];
+      if (!entry) continue;
+      if (entry.toLowerCase() === "default") return; // Оставить модель пользователя
+
+      const parsedRef = parseModelRef(entry);
+      let targetModel: Model | undefined;
+      let thinking: ThinkingLevel | null = null;
+
+      if (parsedRef?.kind === "explicit") {
+        targetModel = ctx.modelRegistry.find(parsedRef.provider, parsedRef.modelId);
+        thinking = parsedRef.thinking;
+      }
+      if (!targetModel) {
+        const matched = matchPiModel(entry, available);
+        if (matched) {
+          targetModel = ctx.modelRegistry.find(matched.model.provider, matched.model.id);
+          thinking = matched.thinking;
+        }
+      }
+
+      if (!targetModel) {
+        if (i === 0 && chain.length === 1) {
+          ctx.ui.notify(msg.extension.modelMissing(entry, view.agent.title), "warning");
+        }
+        continue;
+      }
+
+      if (defaultCooldownTracker.isExhausted(targetModel.provider, targetModel.id, now)) {
+        continue;
+      }
+
+      if (ctx.model?.provider !== targetModel.provider || ctx.model?.id !== targetModel.id) {
+        const changed = await this.pi.setModel(targetModel);
+        if (!changed) {
+          if (i === 0 && chain.length === 1) {
+            ctx.ui.notify(msg.extension.modelUnavailable(entry, view.agent.title), "warning");
+          }
+          continue;
+        }
+        if (i > 0) {
+          ctx.ui.notify(msg.extension.modelFallback(view.agent.title, targetModel.name, "резервная модель роли"), "info");
+        }
+      }
+
+      const effectiveThinking = view.agent.thinking ?? thinking;
+      if (effectiveThinking) this.pi.setThinkingLevel(effectiveThinking);
+      return;
     }
-    const thinking = view.agent.thinking ?? ref.thinking;
-    if (thinking) this.pi.setThinkingLevel(thinking);
   }
 
   private async withSupervisorStatus<T>(b: Binding, ctx: ExtensionContext, work: () => Promise<T>): Promise<T> {

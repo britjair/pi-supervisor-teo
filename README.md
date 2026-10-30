@@ -8,6 +8,8 @@ CLI и расширение Pi `teo` ведут задачи по процесс
 
 - расширение Pi (X1–X4): тот же пакет содержит `dist/extension.js`; работают `/teo start`, `/teo goal`, `/teo resume`, `/teo next`, `/teo pause`, `/teo recover`, `/teo stop`, `/teo status`, `/teo history` и `/teo help`. Задача привязывается к сессии Pi, процесс держит project lock, роль/инструменты/модель берутся из текущего этапа Policy, сообщения пользователя пишутся в журнал. В конце каждого хода отдельная supervisor-сессия проверяет evidence и применяет решение. `userSession: new` переносит этап в дочернюю Pi-сессию, ожидания продолжаются таймером, пауза возвращает обычное окружение Pi, а оборванный ход восстанавливается при `session_start`;
 
+- профили моделей и fallback (D44–D49, [docs/08-model-profiles.md](docs/08-model-profiles.md)): цепочки моделей для ролей в `~/.pi/teo/models.md` с именами, как в Pi (`GPT-5.5`, `Opus-5.5:high`, `Gemini Pro 3.1`); ошибки лимитов и квот (`usage limit`, 429) не блокируют задачу; supervisor и агент прозрачно переходят на резервную модель, а при исчерпании всех моделей задача ожидает с таймером обратного отсчёта;
+
 - режим цели (G1): `teo new KEY --goal "…"` или пункт «Цель» в форме — задача без своего процесса по встроенному шаблону `processes/goal.md`; работает и без единого файла в `~/.pi/teo/`;
 
 - несколько процессов (R2): каталог `~/.pi/teo/`, задача запоминает процесс (`state.process`), `teo new --process`, выбор процесса в форме, колонка процесса в меню и сводках; невалидный или удалённый процесс помечается ⚠ и не мешает задачам других процессов;
@@ -75,7 +77,7 @@ scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi/teo && cp examples/processes/*.md /tmp
 - `test/integration/extension-host.test.ts` — X2 на фейковом `ExtensionAPI`: привязка и восстановление, lock, роль, tools/model, guard, журнал чата, stop.
 - `test/integration/extension-supervisor.test.ts` — X3: report tools, settle, отдельный supervisor, continue/restart/transition/ask_human и полный процесс подбора автомобиля в одной сессии; `test/e2e/extension-host.test.ts` — настоящие host-модель и supervisor доводят задачу до terminal.
 - `test/integration/extension-lifecycle.test.ts` — X4: `userSession: new`, `/teo next`, таймер recheck, `/teo pause`/resume и recovery после закрытия Pi.
-- Полный обычный прогон X4: 50 файлов, 502 теста; реальный Pi e2e: 6 тестов. Отдельно: `scripts/e2e.sh test/e2e/extension-host.test.ts`.
+- Полный обычный прогон X4 + D44–D49: 53 файла, 514 тестов; реальный Pi e2e: 6 тестов. Отдельно: `scripts/e2e.sh test/e2e/extension-host.test.ts`.
 - `scripts/e2e.sh` монтирует только нужные файлы из `~/.pi/agent` **read-only**, копирует их во временный контейнер и удаляет список установленных пакетов/расширений из копии настроек. Исходный `~/.pi` не изменяется. Для другого источника: `TEO_E2E_AGENT_DIR=<каталог> scripts/e2e.sh`. E2E делает реальные вызовы модели и может стоить денег.
 
 ## Установка на хост
