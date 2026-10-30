@@ -10,6 +10,7 @@ workflow:
         в две строки
       agent: explorer
       session: sometimes   # expect: INVALID_ENUM
+      userSession: teleport   # expect: INVALID_ENUM
       recheck:
         minMinutes: 30
         maxMinutes: 10   # expect: RECHECK_RANGE

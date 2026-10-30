@@ -4,9 +4,9 @@ CLI и расширение Pi `teo` ведут задачи по процесс
 
 ## Статус
 
-Готовы этапы M1–M6 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)), R1 (переименование), R2 (несколько процессов), G1 (режим цели), X1–X3 из [docs/07-extension-mode.md §6](docs/07-extension-mode.md#6-этапы-реализации):
+Готовы этапы M1–M6 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)), R1 (переименование), R2 (несколько процессов), G1 (режим цели), X1–X4 из [docs/07-extension-mode.md §6](docs/07-extension-mode.md#6-этапы-реализации):
 
-- расширение Pi (X1–X3): тот же пакет содержит `dist/extension.js`; работают `/teo start`, `/teo goal`, `/teo resume`, `/teo stop`, `/teo status`, `/teo history` и `/teo help`. Задача привязывается к сессии Pi, процесс держит project lock, роль/инструменты/модель берутся из текущего этапа Policy, сообщения пользователя пишутся в журнал. В конце каждого хода отдельная supervisor-сессия проверяет evidence и применяет решение; переходы, continue/restart и нативные вопросы происходят в той же пользовательской сессии;
+- расширение Pi (X1–X4): тот же пакет содержит `dist/extension.js`; работают `/teo start`, `/teo goal`, `/teo resume`, `/teo next`, `/teo pause`, `/teo recover`, `/teo stop`, `/teo status`, `/teo history` и `/teo help`. Задача привязывается к сессии Pi, процесс держит project lock, роль/инструменты/модель берутся из текущего этапа Policy, сообщения пользователя пишутся в журнал. В конце каждого хода отдельная supervisor-сессия проверяет evidence и применяет решение. `userSession: new` переносит этап в дочернюю Pi-сессию, ожидания продолжаются таймером, пауза возвращает обычное окружение Pi, а оборванный ход восстанавливается при `session_start`;
 
 - режим цели (G1): `teo new KEY --goal "…"` или пункт «Цель» в форме — задача без своего процесса по встроенному шаблону `processes/goal.md`; работает и без единого файла в `~/.pi/teo/`;
 
@@ -74,7 +74,8 @@ scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi/teo && cp examples/processes/*.md /tmp
 - `test/integration/extension-load.test.ts` — пакет как расширение: настоящий загрузчик Pi, манифест без предупреждений, `/teo` через сессию SDK и через `pi -e <пакет> -p`.
 - `test/integration/extension-host.test.ts` — X2 на фейковом `ExtensionAPI`: привязка и восстановление, lock, роль, tools/model, guard, журнал чата, stop.
 - `test/integration/extension-supervisor.test.ts` — X3: report tools, settle, отдельный supervisor, continue/restart/transition/ask_human и полный процесс подбора автомобиля в одной сессии; `test/e2e/extension-host.test.ts` — настоящие host-модель и supervisor доводят задачу до terminal.
-- Полный обычный прогон X3: 49 файлов, 496 тестов; реальный Pi e2e: 6 тестов. Отдельно: `scripts/e2e.sh test/e2e/extension-host.test.ts`.
+- `test/integration/extension-lifecycle.test.ts` — X4: `userSession: new`, `/teo next`, таймер recheck, `/teo pause`/resume и recovery после закрытия Pi.
+- Полный обычный прогон X4: 50 файлов, 502 теста; реальный Pi e2e: 6 тестов. Отдельно: `scripts/e2e.sh test/e2e/extension-host.test.ts`.
 - `scripts/e2e.sh` монтирует только нужные файлы из `~/.pi/agent` **read-only**, копирует их во временный контейнер и удаляет список установленных пакетов/расширений из копии настроек. Исходный `~/.pi` не изменяется. Для другого источника: `TEO_E2E_AGENT_DIR=<каталог> scripts/e2e.sh`. E2E делает реальные вызовы модели и может стоить денег.
 
 ## Установка на хост
@@ -99,7 +100,7 @@ pi -e ~/code/pi-supervisor-teo        # попробовать в одной с�
 pi install ~/code/pi-supervisor-teo   # подключить насовсем (пишет в ~/.pi/agent/settings.json)
 ```
 
-В сессии: `/teo start [KEY]`, `/teo goal <цель>`, `/teo resume KEY`, `/teo stop`, `/teo status`, `/teo history KEY`, `/teo help`.
+В сессии: `/teo start [KEY]`, `/teo goal <цель>`, `/teo resume KEY`, `/teo next`, `/teo pause`, `/teo recover KEY`, `/teo stop`, `/teo status`, `/teo history KEY`, `/teo help`.
 
 Затем:
 

@@ -8,9 +8,7 @@ import { msg } from "../ui/messages.js";
 import { ExtensionHost } from "./host.js";
 import { errorText, extensionAppContext, runCaptured } from "./run-command.js";
 
-const READY = ["start", "goal", "resume", "stop", "status", "history", "help"] as const;
-/** Следующие этапы: X3 (проверка supervisor-ом), X4 (next, pause, recover) */
-const PLANNED = ["next", "pause", "recover"] as const;
+const READY = ["start", "goal", "resume", "next", "pause", "recover", "stop", "status", "history", "help"] as const;
 
 export function parseArgs(args: string): { sub: string; rest: string[]; tail: string } {
   const trimmed = args.trim();
@@ -47,10 +45,15 @@ async function handle(host: ExtensionHost, args: string, ctx: ExtensionCommandCo
       return host.goal(ctx, tail);
     case "resume":
       return host.resume(ctx, rest[0]);
+    case "next":
+      return host.next(ctx);
+    case "pause":
+      return host.pause(ctx);
+    case "recover":
+      return host.recover(ctx, rest[0]);
     case "stop":
       return host.stop(ctx);
     default:
-      if ((PLANNED as readonly string[]).includes(sub)) return show(ctx, msg.extension.planned(sub), "warning");
       return show(ctx, msg.extension.unknown(sub), "warning");
   }
 }
@@ -61,7 +64,7 @@ export default function teoExtension(pi: ExtensionAPI): void {
   pi.registerCommand("teo", {
     description: msg.extension.description,
     getArgumentCompletions: (prefix) => {
-      const items = [...READY, ...PLANNED].filter((s) => s.startsWith(prefix.trim().toLowerCase()));
+      const items = [...READY].filter((s) => s.startsWith(prefix.trim().toLowerCase()));
       return items.length > 0 ? items.map((value) => ({ value, label: value })) : null;
     },
     handler: async (args, ctx) => {

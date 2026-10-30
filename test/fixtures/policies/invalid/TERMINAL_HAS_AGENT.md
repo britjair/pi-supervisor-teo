@@ -21,6 +21,7 @@ workflow:
       terminal: true
       agent: executor   # expect: TERMINAL_HAS_AGENT
       session: reuse
+      userSession: new
 
 agents:
   explorer:

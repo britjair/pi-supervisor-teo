@@ -64,14 +64,24 @@ export type FakeUi = {
   status: Map<string, string | undefined>;
   /** Ответы диалогов по порядку вызова */
   answers: Array<string | undefined>;
+  editorText: string;
+  editors: Array<{ title: string; prefill: string | undefined }>;
 };
 
 /** Контекст команды Pi: cwd, сессия, UI с заготовленными ответами, реестр моделей. */
 export function fakeCtx(
   pi: FakePi,
-  opts: { cwd: string; sessionId?: string; sessionFile?: string; ui?: Partial<FakeUi>; models?: FakeModel[] },
+  opts: {
+    cwd: string;
+    sessionId?: string;
+    sessionFile?: string;
+    ui?: Partial<FakeUi>;
+    models?: FakeModel[];
+    idle?: boolean;
+    newSession?: ExtensionCommandContext["newSession"];
+  },
 ): ExtensionCommandContext & { fakeUi: FakeUi } {
-  const ui: FakeUi = { notes: [], status: new Map(), answers: [], ...opts.ui };
+  const ui: FakeUi = { notes: [], status: new Map(), answers: [], editorText: "", editors: [], ...opts.ui };
   const next = async () => ui.answers.shift();
   const ctx = {
     cwd: opts.cwd,
@@ -81,6 +91,7 @@ export function fakeCtx(
       return pi.model;
     },
     modelRegistry: { find: (provider: string, id: string) => (opts.models ?? []).find((m) => m.provider === provider && m.id === id) },
+    isIdle: () => opts.idle ?? true,
     sessionManager: {
       getSessionId: () => opts.sessionId ?? "session-1",
       getSessionFile: () => opts.sessionFile ?? "/tmp/pi-sessions/session-1.jsonl",
@@ -91,7 +102,15 @@ export function fakeCtx(
       setStatus: (key: string, text: string | undefined) => void ui.status.set(key, text),
       select: next,
       input: next,
-      editor: next,
+      editor: async (title: string, prefill?: string) => {
+        ui.editors.push({ title, prefill });
+        return next();
+      },
+      setEditorText: (text: string) => void (ui.editorText = text),
+    },
+    newSession: opts.newSession ?? (async () => ({ cancelled: true })),
+    sendMessage: async (message: { customType: string; content: unknown }, options?: unknown) => {
+      pi.sent.push({ message, options });
     },
     fakeUi: ui,
   };

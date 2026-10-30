@@ -98,7 +98,14 @@ export const taskStateSchema = z.object({
     lastPolicyHashShown: z.string().nullable(),
   }),
   // Поле появилось на X2: в state-файлах прежних версий его нет
-  hostSession: z.object({ sessionId: id, sessionFile: z.string().nullable(), boundAt: iso }).nullable().default(null),
+  hostSession: z.object({
+    sessionId: id,
+    sessionFile: z.string().nullable(),
+    boundAt: iso,
+    paused: z.boolean().default(false),
+    awaitingNextSession: z.boolean().default(false),
+    nextSessionId: id.nullable().default(null),
+  }).nullable().default(null),
   pendingDecision: decision.nullable(),
   lastAppliedDecisionId: id.nullable(),
   lastDecision: z.object({ decisionId: id, action: id, summary: z.string(), at: iso }).nullable(),

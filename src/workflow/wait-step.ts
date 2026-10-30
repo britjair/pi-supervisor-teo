@@ -27,7 +27,7 @@ export const WAIT_NOTICE_MS = 10 * 60_000;
 
 const minutesBetween = (fromIso: string, to: Date) => Math.max(0, Math.round((to.getTime() - new Date(fromIso).getTime()) / 60_000));
 
-async function finish(core: EngineCore, state: TaskState, reason: "due" | "skipped_by_human"): Promise<void> {
+export async function finishWait(core: EngineCore, state: TaskState, reason: "due" | "skipped_by_human"): Promise<void> {
   const wait = state.wait;
   if (!wait) return;
   await core.store.tasks.commit(
@@ -49,14 +49,14 @@ async function finish(core: EngineCore, state: TaskState, reason: "due" | "skipp
 }
 
 /** Сообщение человека во время ожидания уходит supervisor-у (03-engine.md §12.3). */
-export async function waitHumanMessage(core: EngineCore, state: TaskState, text: string): Promise<void> {
+export async function waitHumanMessage(core: EngineCore, state: TaskState, text: string, channel?: "chat"): Promise<void> {
   const wait = state.wait;
   if (!wait) return;
   await core.store.tasks.commit(
     core.key,
     (s, c) => {
       const waited = minutesBetween(wait.scheduledAt, new Date(c.now));
-      const responseId = c.emit("human.responded", "human", { requestId: null, answer: text, selectedOption: null });
+      const responseId = c.emit("human.responded", "human", { requestId: null, answer: text, selectedOption: null, ...(channel ? { channel } : {}) });
       c.emit("wait.finished", "cli", { decisionId: wait.decisionId, reason: "human_message", waitedMinutes: waited, responseRef: `human:${responseId}` });
       return {
         ...s,
@@ -74,7 +74,7 @@ export async function waitHumanMessage(core: EngineCore, state: TaskState, text:
 export async function awaitWait(core: EngineCore, state: TaskState, consumeCheckNow: () => boolean): Promise<ExitOutcome | void> {
   const wait = state.wait;
   if (!wait) throw new Error("phase=waiting без wait");
-  if (consumeCheckNow()) return finish(core, state, "skipped_by_human");
+  if (consumeCheckNow()) return finishWait(core, state, "skipped_by_human");
 
   const due = new Date(wait.dueAt).getTime();
   const stage = getStage(core.policy.spec, state.stage);
@@ -85,7 +85,7 @@ export async function awaitWait(core: EngineCore, state: TaskState, consumeCheck
   let lastNotice = core.clock.now().getTime();
   for (;;) {
     const now = core.clock.now().getTime();
-    if (now >= due) return finish(core, state, "due");
+    if (now >= due) return finishWait(core, state, "due");
     if (core.options.noWait) return { kind: "waiting_recheck", dueAt: wait.dueAt };
     if (now - lastNotice >= WAIT_NOTICE_MS) {
       core.reporter.emit({ type: "waiting.tick", minutesLeft: Math.ceil((due - now) / 60_000) });
@@ -96,7 +96,7 @@ export async function awaitWait(core: EngineCore, state: TaskState, consumeCheck
       case "tick":
         continue;
       case "check_now":
-        return finish(core, state, "skipped_by_human");
+        return finishWait(core, state, "skipped_by_human");
       case "message":
         return waitHumanMessage(core, state, action.text);
       case "quit":

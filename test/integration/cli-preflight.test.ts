@@ -134,9 +134,9 @@ describe("teo doctor", () => {
     const r = await runCli(sb, ["doctor"]);
     expect(r.code).toBe(2);
     expect(r.stdout).toContain("✗ Процесс test · ~/.pi/teo/test.md");
-    expect(r.stdout).toContain("Policy невалидна (16 проблем):");
+    expect(r.stdout).toContain("Policy невалидна (17 проблем):");
     const located = r.stdout.split("\n").filter((l) => /^\s+✗ \S+ \(строка \d+\)$/.test(l));
-    expect(located).toHaveLength(16);
+    expect(located).toHaveLength(17);
     // Вторая ошибка — модель встроенного процесса цели без авторизации Pi в песочнице
     expect(r.stdout).toContain("✗ Модель default недоступна или не авторизована");
     expect(r.stdout).toContain("Итог: 2 ошибки, 0 предупреждений.");

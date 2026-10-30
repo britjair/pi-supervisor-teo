@@ -65,6 +65,7 @@ function stageFields(stage: Stage): Record<string, unknown> {
     agent: stage.agent,
     instructions: stage.instructions,
     session: stage.session,
+    userSession: stage.userSession,
     recheck: stage.recheck !== null,
     ...flatten("recheck", stage.recheck),
   };
@@ -77,6 +78,7 @@ const STAGE_FIELDS = [
   "agent",
   "instructions",
   "session",
+  "userSession",
   "recheck",
   "recheck.minMinutes",
   "recheck.maxMinutes",

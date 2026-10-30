@@ -18,7 +18,7 @@ function isTerminal(stage: RawStage): boolean {
   return stage.terminal === true;
 }
 
-const TERMINAL_FORBIDDEN_FIELDS = ["agent", "instructions", "session", "recheck"] as const;
+const TERMINAL_FORBIDDEN_FIELDS = ["agent", "instructions", "session", "userSession", "recheck"] as const;
 
 export function validateGraph(raw: RawPolicy, body: string, locate: Locator): GraphValidationResult {
   const errors: PolicyIssue[] = [];

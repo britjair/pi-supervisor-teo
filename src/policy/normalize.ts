@@ -62,6 +62,7 @@ function normalizeStage(id: string, raw: RawStage): Stage {
     agent: raw.agent ?? "",
     instructions: optionalText(raw.instructions),
     session: raw.session ?? "fresh",
+    userSession: raw.userSession ?? "same",
     transitions: (raw.transitions ?? []).map((t) => ({
       to: t.to,
       when: t.when,

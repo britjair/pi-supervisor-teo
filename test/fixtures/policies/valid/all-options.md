@@ -15,6 +15,7 @@ workflow:
       agent: triager
       instructions: Разбери обращение.
       session: fresh
+      userSession: same
       transitions:
         - to: triage
           when: Нужен новый вход в этап с чистой сессией.
@@ -27,6 +28,7 @@ workflow:
       title: Ожидание внешней системы
       agent: triager
       session: reuse
+      userSession: new
       recheck: {}
       transitions:
         - to: closed

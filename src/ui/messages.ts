@@ -205,19 +205,26 @@ export const msg = {
       "Pi Supervisor TEO",
       "  /teo start [KEY]     новая задача в этой сессии: процесс, описание, роль первого этапа",
       "  /teo goal <цель>     задача-цель без процесса (ключ GOAL-N)",
-      "  /teo resume KEY      продолжить задачу в этой сессии",
+      "  /teo resume KEY      продолжить задачу или снять паузу",
+      "  /teo next            перейти в новую Pi-сессию, когда этого требует этап",
+      "  /teo pause           временно отключить роль и проверки, сохранив привязку",
+      "  /teo recover KEY     восстановить оборванный ход",
       "  /teo stop            отвязать задачу от сессии; продолжить: /teo resume KEY или teo resume KEY",
       "  /teo status [KEY]    состояние задач проекта или одной задачи",
       "  /teo history [KEY]   задачи проекта или журнал задачи",
-      "Supervisor проверяет результат в конце каждого хода. Скоро: /teo next, pause, recover.",
+      "Supervisor проверяет результат в конце каждого хода.",
     ].join("\n"),
     planned: (sub: string) => `/teo ${sub} появится на следующих этапах. Сейчас задачу ведёт команда teo в терминале.`,
     unknown: (sub: string) => `Неизвестная подкоманда /teo ${sub}. Справка: /teo help`,
     askKey: "Ключ задачи",
     goalUsage: "Укажите цель: /teo goal <текст цели>",
     resumeUsage: "Укажите задачу: /teo resume KEY",
+    recoverUsage: "Укажите задачу: /teo recover KEY",
     busy: (key: string) => `Сессия уже ведёт задачу ${key}. Сначала /teo stop.`,
     alreadyBound: (key: string) => `Сессия уже ведёт задачу ${key}.`,
+    alreadyPaused: (key: string) => `Проверки задачи ${key} уже на паузе.`,
+    paused: (key: string) => `teo: задача ${key} на паузе; обычная сессия Pi доступна без роли и report-инструментов. Продолжить: /teo resume ${key}.`,
+    resumed: (key: string) => `teo: проверки задачи ${key} продолжены.`,
     notBound: "Сессия не ведёт задачу teo.",
     finished: (key: string) => `Задача ${key} завершена: вести нечего.`,
     halted: (key: string, reason: string) => `Задача ${key} остановлена (${reason}). Разберите её в терминале: teo resume ${key} или teo recover ${key}.`,
@@ -229,6 +236,8 @@ export const msg = {
     modelMissing: (model: string, agent: string) => `teo: модель ${model} роли «${agent}» не найдена в Pi — остаётся текущая модель.`,
     modelUnavailable: (model: string, agent: string) => `teo: модель ${model} роли «${agent}» недоступна без авторизации — остаётся текущая модель.`,
     status: (key: string, stage: string, agent: string, cycle: number) => `teo: ${key} · ${stage} · ${agent} · цикл ${cycle}`,
+    statusPaused: (key: string) => `teo: ${key} · пауза`,
+    statusNext: (key: string, stage: string) => `teo: ${key} · ${stage} · нужна новая сессия`,
     supervisorChecking: (key: string, cycle: number) => `teo: ${key} · supervisor проверяет · цикл ${cycle}`,
     waitingHuman: (key: string) => `teo: ${key} · ожидается ответ пользователя`,
     waitingUntil: (key: string, dueAt: string) => `teo: ${key} · ожидание до ${dueAt}`,
@@ -239,6 +248,10 @@ export const msg = {
       `[teo] ${key}: предыдущая роль завершена. Переход к этапу «${stage}».\nПричина: ${reason}\n` +
       `Новая роль — «${agent}». Передача: ${handoff?.trim() || "нет"}.\n\n${role}`,
     recheckScheduled: (waitingFor: string, dueAt: string) => `[teo] Supervisor запланировал перепроверку до ${dueAt}: ${waitingFor}`,
+    recheckDue: (waitingFor: string, message: string) => `[teo] Срок ожидания закончился. Перепроверьте: ${waitingFor}\n\n${message}`,
+    nextRequired: (stage: string) => `Этап «${stage}» должен начаться в новой Pi-сессии. Нажмите Enter с командой /teo next.`,
+    nextNotRequired: (key: string) => `Задаче ${key} сейчас не нужна новая Pi-сессия.`,
+    nextCancelled: "Создание новой Pi-сессии отменено; команда /teo next осталась доступна.",
     terminal: (key: string, stage: string) => `[teo] Задача ${key} завершена на этапе «${stage}».`,
     cancelled: (key: string, reason: string) => `[teo] Задача ${key} отменена. ${reason}`,
     blocked: (key: string, reason: string) => `[teo] Задача ${key} заблокирована. ${reason}`,
@@ -780,6 +793,12 @@ export function eventSummary(e: TaskEvent): string {
       return `ведётся в сессии Pi ${e.payload.sessionId.slice(0, 8)}`;
     case "session.unbound":
       return `отвязана от сессии Pi (${e.payload.reason === "stop" ? "/teo stop" : e.payload.reason === "finished" ? "задача завершена" : e.payload.reason === "lock_lost" ? "lock потерян" : "другая сессия"})`;
+    case "session.next_requested":
+      return `этап ${e.payload.stage} требует новую Pi-сессию`;
+    case "supervision.paused":
+      return "проверки поставлены на паузу";
+    case "supervision.resumed":
+      return "проверки продолжены";
     case "wait.scheduled":
       return `ожидание ${e.payload.number}/${e.payload.maxCount} до ${e.payload.dueAt}: ${clip(e.payload.waitingFor)}`;
     case "wait.finished":

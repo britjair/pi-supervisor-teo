@@ -1,6 +1,6 @@
 // ExtensionHost (docs/07-extension-mode.md §4.3–4.4): задача teo в пользовательской сессии Pi.
-// X2: binding, роль/tools/model, lock, журнал чата. X3: logical agent runs, report tools,
-// supervisor в отдельной сессии и применение решений внутри agent_before_settle.
+// X2: binding, роль/tools/model, lock, журнал чата. X3: logical agent runs и supervisor.
+// X4: userSession:new, recheck-таймеры, pause/resume и recovery оборванных фаз.
 
 import path from "node:path";
 import type {
@@ -12,6 +12,7 @@ import type {
   ExtensionContext,
   InputEvent,
   InputEventResult,
+  SessionShutdownEvent,
   ToolCallEvent,
   ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
@@ -70,6 +71,8 @@ type Binding = {
   saved: { tools: string[]; model: Model | undefined; thinking: ThinkingLevel };
   /** Этап, для которого уже применена модель роли (D38): не переключать на каждом ходу. */
   modelAppliedFor: string | null;
+  /** Таймер schedule_recheck живёт только пока открыта привязанная Pi-сессия. */
+  waitTimer: ReturnType<typeof setTimeout> | null;
 };
 
 type StageView = { state: TaskState; policy: LoadedPolicy; stage: WorkStage; agent: AgentDef };
@@ -92,10 +95,10 @@ export class ExtensionHost {
   register(): void {
     this.registerReportTools();
     this.pi.on("session_start", (_e, ctx) => this.guarded(ctx, () => this.onSessionStart(ctx)));
-    this.pi.on("session_shutdown", () => this.detach());
+    this.pi.on("session_shutdown", (e) => this.onSessionShutdown(e));
     this.pi.on("before_agent_start", (e, ctx) => this.guarded(ctx, () => this.onBeforeAgentStart(e, ctx)));
     this.pi.on("agent_before_settle", (e, ctx) => this.guarded(ctx, () => this.onBeforeSettle(e, ctx)));
-    this.pi.on("input", (e, ctx) => this.guarded(ctx, () => this.onInput(e)));
+    this.pi.on("input", (e, ctx) => this.guarded(ctx, () => this.onInput(e, ctx)));
     this.pi.on("tool_call", (e, ctx) => this.onToolCall(e, ctx));
   }
 
@@ -139,12 +142,87 @@ export class ExtensionHost {
     await this.bind(ctx, state.key, { kickoff: true });
   }
 
-  /** /teo resume KEY: продолжить существующую задачу в этой сессии. */
+  /** /teo resume KEY: продолжить существующую задачу или снять явную паузу. */
   async resume(ctx: ExtensionCommandContext, keyArg: string | undefined): Promise<void> {
     if (!keyArg) throw new UsageError(msg.extension.resumeUsage);
-    if (this.binding?.key.toUpperCase() === keyArg.toUpperCase()) return ctx.ui.notify(msg.extension.alreadyBound(this.binding.key), "info");
+    if (this.binding?.key.toUpperCase() === keyArg.toUpperCase()) {
+      const state = await this.binding.store.tasks.load(this.binding.key);
+      if (state.hostSession?.paused) return this.resumePaused(this.binding, ctx);
+      return ctx.ui.notify(msg.extension.alreadyBound(this.binding.key), "info");
+    }
     this.assertFree();
-    await this.bind(ctx, keyArg, { kickoff: true });
+    const b = await this.bind(ctx, keyArg, { kickoff: false });
+    if (b) await this.resumeBoundWorkflow(b, ctx, true);
+  }
+
+  /** /teo pause: оставить binding и lock, но временно вернуть обычный режим Pi. */
+  async pause(ctx: ExtensionContext): Promise<void> {
+    const b = this.binding;
+    if (!b) return ctx.ui.notify(msg.extension.notBound, "info");
+    const state = await b.store.tasks.load(b.key);
+    if (state.hostSession?.paused) return ctx.ui.notify(msg.extension.alreadyPaused(b.key), "info");
+    await b.store.tasks.commit(b.key, (s, c) => {
+      c.emit("supervision.paused", "human", { sessionId: b.sessionId });
+      return { ...s, hostSession: s.hostSession ? { ...s.hostSession, paused: true } : null };
+    }, { expectedVersion: state.version });
+    this.clearWaitTimer(b);
+    await this.restoreUserEnvironment(b);
+    b.modelAppliedFor = null;
+    ctx.ui.setStatus("teo", msg.extension.statusPaused(b.key));
+    ctx.ui.notify(msg.extension.paused(b.key), "info");
+  }
+
+  /** /teo recover KEY: явный вход в тот же recovery-путь, что и session_start. */
+  async recover(ctx: ExtensionCommandContext, keyArg: string | undefined): Promise<void> {
+    if (!keyArg) throw new UsageError(msg.extension.recoverUsage);
+    if (!this.binding) {
+      const b = await this.bind(ctx, keyArg, { kickoff: false });
+      if (b) await this.resumeBoundWorkflow(b, ctx, true);
+      return;
+    }
+    if (this.binding.key.toUpperCase() !== keyArg.toUpperCase()) this.assertFree();
+    const state = await this.binding.store.tasks.load(this.binding.key);
+    if (state.hostSession?.paused) await this.resumePaused(this.binding, ctx);
+    else await this.resumeBoundWorkflow(this.binding, ctx, true);
+  }
+
+  /** /teo next: создать новую пользовательскую Pi-сессию для текущего этапа. */
+  async next(ctx: ExtensionCommandContext): Promise<void> {
+    const b = this.binding;
+    if (!b) return ctx.ui.notify(msg.extension.notBound, "info");
+    const state = await b.store.tasks.load(b.key);
+    if (!state.hostSession?.awaitingNextSession) throw new UsageError(msg.extension.nextNotRequired(b.key));
+    const view = await this.requireStageView(b);
+    const kickoff = stageKickoff({ stageTitle: view.stage.title, agentTitle: view.agent.title });
+    const nextStatus = msg.extension.status(b.key, view.stage.title, view.agent.title, view.state.supervisor.cycle);
+    const parentSession = ctx.sessionManager.getSessionFile() ?? undefined;
+    const result = await ctx.newSession({
+      ...(parentSession ? { parentSession } : {}),
+      setup: async (manager) => {
+        const nextSessionId = manager.getSessionId();
+        const current = await b.store.tasks.load(b.key);
+        await b.store.tasks.commit(b.key, (s) => ({
+          ...s,
+          hostSession: s.hostSession ? { ...s.hostSession, nextSessionId } : null,
+        }), { expectedVersion: current.version });
+        manager.appendCustomEntry(BINDING_ENTRY, { key: b.key, projectRoot: ctx.cwd } satisfies BindingEntry);
+      },
+      withSession: async (replacementCtx) => {
+        // После замены исходный ProjectStore уже stale: все данные готовим до ctx.newSession().
+        replacementCtx.ui.setStatus("teo", nextStatus);
+        await replacementCtx.sendMessage({ customType: "teo-role-kickoff", content: kickoff, display: true }, { triggerTurn: true });
+      },
+    });
+    if (result.cancelled) {
+      const current = await b.store.tasks.load(b.key);
+      if (current.hostSession?.nextSessionId) {
+        await b.store.tasks.commit(b.key, (s) => ({
+          ...s,
+          hostSession: s.hostSession ? { ...s.hostSession, nextSessionId: null } : null,
+        }), { expectedVersion: current.version });
+      }
+      ctx.ui.notify(msg.extension.nextCancelled, "info");
+    }
   }
 
   /** /teo stop: отвязать задачу от сессии и вернуть пользователю его инструменты и модель. */
@@ -157,7 +235,7 @@ export class ExtensionHost {
 
   // ---------- события Pi ----------
 
-  /** Перезапуск Pi с привязанной сессией: задача продолжает держать binding (recovery хода — X4). */
+  /** Перезапуск/замена Pi-сессии: binding и незавершённая фаза восстанавливаются автоматически. */
   private async onSessionStart(ctx: ExtensionContext): Promise<void> {
     if (this.binding) return;
     const entry = ctx.sessionManager
@@ -167,9 +245,25 @@ export class ExtensionHost {
     const data = entry?.data as BindingEntry | undefined;
     if (!data?.key || path.resolve(data.projectRoot) !== path.resolve(ctx.cwd)) return;
     try {
-      await this.bind(ctx, data.key, { kickoff: false, auto: true });
+      const b = await this.bind(ctx, data.key, { kickoff: false, auto: true });
+      if (b) await this.resumeBoundWorkflow(b, ctx, true);
     } catch (err) {
       ctx.ui.notify(msg.extension.autoResumeFailed(data.key, err instanceof Error ? err.message : String(err)), "warning");
+    }
+  }
+
+  private async onSessionShutdown(event: SessionShutdownEvent): Promise<void> {
+    const b = this.binding;
+    if (!b) return;
+    try {
+      const state = await b.store.tasks.load(b.key);
+      if (!state.hostSession?.paused && state.phase === "agent_running") {
+        await b.workflow.interruptActiveRun(`pi:${event.reason}`);
+      }
+    } catch {
+      // Shutdown обязан освободить lock даже при повреждённом state.
+    } finally {
+      await this.detach();
     }
   }
 
@@ -178,7 +272,7 @@ export class ExtensionHost {
     const b = this.binding;
     if (!b) return;
     const pending = await this.stageView(b);
-    if (!pending) return;
+    if (!pending || pending.state.hostSession?.paused || pending.state.hostSession?.awaitingNextSession) return;
     event.systemPromptOptions.sections["teo_stage"] = await this.roleSection(b, pending);
     if (pending.state.phase === "agent_pending") await b.workflow.beginAgentTurn(promptText(event));
     const view = (await this.stageView(b)) ?? pending;
@@ -191,6 +285,10 @@ export class ExtensionHost {
     if (!b) return;
     const current = await b.store.tasks.load(b.key);
     if (current.phase !== "agent_running") return;
+    if (current.hostSession?.paused) {
+      await b.workflow.settleOnly(event);
+      return;
+    }
     ctx.ui.setStatus("teo", msg.extension.supervisorChecking(b.key, current.supervisor.cycle + 1));
     let result = await b.workflow.settleAndSupervise(event);
 
@@ -214,11 +312,18 @@ export class ExtensionHost {
   }
 
   /** Сообщение пользователя при привязанной задаче — подтверждение для guard humanResponse (D40). */
-  private async onInput(event: InputEvent): Promise<InputEventResult | void> {
+  private async onInput(event: InputEvent, ctx: ExtensionContext): Promise<InputEventResult | void> {
     const b = this.binding;
     const text = event.text.trim();
     if (!b || event.source === "extension" || !text || text.startsWith("/")) return;
     b.lock.signal.throwIfAborted();
+    const state = await b.store.tasks.load(b.key);
+    if (state.phase === "waiting" && !state.hostSession?.paused) {
+      this.clearWaitTimer(b);
+      await b.workflow.waitingHumanMessage(text);
+      await this.resumeBoundWorkflow(b, ctx, true);
+      return { action: "handled" };
+    }
     await b.store.tasks.commit(b.key, (s, c) => {
       c.emit("human.responded", "human", { requestId: null, answer: text, selectedOption: null, channel: "chat" });
       return s;
@@ -275,6 +380,10 @@ export class ExtensionHost {
       case "transition_stage": {
         if (isHalted(result.state)) return this.finishResult(b, ctx, result.state);
         const view = await this.requireStageView(b);
+        if (view.stage.userSession === "new") {
+          await this.requestNextSession(b, ctx, view);
+          return { entries: [customMessage(msg.extension.nextRequired(view.stage.title))], continue: false };
+        }
         const role = await this.roleSection(b, view);
         const text = msg.extension.transition(
           result.state.key,
@@ -291,6 +400,7 @@ export class ExtensionHost {
       }
       case "schedule_recheck":
         ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, result.state.wait?.dueAt ?? "?"));
+        await this.scheduleWaitTimer(b, ctx);
         return { entries: [customMessage(msg.extension.recheckScheduled(decision.input.waitingFor, result.state.wait?.dueAt ?? "?"))], continue: false };
       case "block_task":
       case "cancel_task":
@@ -304,8 +414,9 @@ export class ExtensionHost {
   private async answerSupervisorQuestion(b: Binding, ctx: ExtensionContext, request: HumanRequest | null): Promise<boolean> {
     if (!request) throw new Error("решение ask_human без pendingHumanRequest");
     let answer: string | undefined;
+    if (request.context?.trim()) ctx.ui.notify(request.context.trim(), "info");
     if (request.options?.length) answer = await ctx.ui.select(request.question, request.options);
-    else answer = await ctx.ui.editor(request.question, request.context ?? "");
+    else answer = await ctx.ui.editor(request.question, "");
     if (answer === undefined) return false;
     const text = answer.trim();
     if (!text) return false;
@@ -380,7 +491,7 @@ export class ExtensionHost {
     return options.find((name) => label(name) === picked) ?? null;
   }
 
-  private async bind(ctx: ExtensionContext, keyArg: string, opts: { kickoff: boolean; auto?: boolean }): Promise<void> {
+  private async bind(ctx: ExtensionContext, keyArg: string, opts: { kickoff: boolean; auto?: boolean }): Promise<Binding | null> {
     const { ctx: app } = extensionAppContext(ctx.cwd, this.homeDir);
     const { store } = await startCommand(app);
     const key = await store.requireKey(keyArg);
@@ -389,7 +500,7 @@ export class ExtensionHost {
     if (isFinished(before)) throw new UsageError(msg.extension.finished(key));
     if (isHalted(before)) throw new UsageError(msg.extension.halted(key, before.statusReason?.message ?? before.status));
     const sessionId = ctx.sessionManager.getSessionId();
-    if (opts.auto && before.hostSession?.sessionId !== sessionId) return;
+    if (opts.auto && before.hostSession?.sessionId !== sessionId && before.hostSession?.nextSessionId !== sessionId) return null;
 
     const held = await store.holdLock({ command: "extension", taskKey: key, onLost: () => void this.lost(ctx) });
     try {
@@ -400,7 +511,7 @@ export class ExtensionHost {
         await store.tasks.commit(key, (s, c) => {
           if (s.hostSession) c.emit("session.unbound", "cli", { sessionId: s.hostSession.sessionId, reason: "other_session" });
           c.emit("session.bound", "human", { sessionId, sessionFile });
-          return { ...s, hostSession: { sessionId, sessionFile, boundAt: c.now } };
+          return { ...s, hostSession: { sessionId, sessionFile, boundAt: c.now, paused: false, awaitingNextSession: false, nextSessionId: null } };
         });
       }
     } catch (err) {
@@ -425,19 +536,188 @@ export class ExtensionHost {
       release: held.release,
       saved: { tools: this.pi.getActiveTools(), model: ctx.model, thinking: this.pi.getThinkingLevel() },
       modelAppliedFor: null,
+      waitTimer: null,
     };
     if (!opts.auto) this.pi.appendEntry<BindingEntry>(BINDING_ENTRY, { key, projectRoot: store.layout.projectRoot });
 
     const view = await this.stageView(this.binding);
-    if (!view) return;
+    if (!view) return this.binding;
+    if (view.state.hostSession?.paused) {
+      ctx.ui.setStatus("teo", msg.extension.statusPaused(key));
+      return this.binding;
+    }
     ctx.ui.setStatus("teo", msg.extension.status(key, view.stage.title, view.agent.title, view.state.supervisor.cycle));
     ctx.ui.notify(opts.auto ? msg.extension.autoResumed(key, view.stage.title) : msg.extension.bound(key, view.stage.title, view.agent.title), "info");
-    if (opts.kickoff && view.state.phase === "agent_pending" && view.state.nextAgentInput?.kind === "initial") {
+    if (view.state.phase === "waiting") await this.scheduleWaitTimer(this.binding, ctx);
+    if (opts.kickoff && view.state.phase === "agent_pending" && !view.state.hostSession?.awaitingNextSession) {
       this.pi.sendMessage(
         { customType: "teo-stage", content: stageKickoff({ stageTitle: view.stage.title, agentTitle: view.agent.title }), display: true },
         { triggerTurn: true },
       );
     }
+    return this.binding;
+  }
+
+  private async resumePaused(b: Binding, ctx: ExtensionContext): Promise<void> {
+    const state = await b.store.tasks.load(b.key);
+    await b.store.tasks.commit(b.key, (s, c) => {
+      c.emit("supervision.resumed", "human", { sessionId: b.sessionId });
+      return { ...s, hostSession: s.hostSession ? { ...s.hostSession, paused: false } : null };
+    }, { expectedVersion: state.version });
+    ctx.ui.notify(msg.extension.resumed(b.key), "info");
+    await this.resumeBoundWorkflow(b, ctx, true);
+  }
+
+  /** Продолжение workflow вне settle-boundary: session_start, /teo resume, таймер recheck. */
+  private async resumeBoundWorkflow(b: Binding, ctx: ExtensionContext, kickoff: boolean): Promise<void> {
+    let state = await b.workflow.recoverOnBind();
+    if (state.hostSession?.paused) {
+      ctx.ui.setStatus("teo", msg.extension.statusPaused(b.key));
+      return;
+    }
+    if (isHalted(state)) {
+      await this.finishResult(b, ctx, state);
+      return;
+    }
+    if (state.hostSession?.awaitingNextSession) {
+      const view = await this.requireStageView(b);
+      await this.requestNextSession(b, ctx, view, false);
+      return;
+    }
+    if (state.phase === "waiting") {
+      await this.scheduleWaitTimer(b, ctx);
+      ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, state.wait?.dueAt ?? "?"));
+      return;
+    }
+    if (state.phase === "human_pending") {
+      const answered = await this.answerSupervisorQuestion(b, ctx, state.pendingHumanRequest);
+      if (!answered) {
+        ctx.ui.setStatus("teo", msg.extension.waitingHuman(b.key));
+        return;
+      }
+      state = await b.store.tasks.load(b.key);
+    }
+    if (state.phase === "supervisor_pending" || state.phase === "decision_pending") {
+      let result = await b.workflow.superviseAndApply();
+      while (result.decision?.action === "ask_human") {
+        const answered = await this.answerSupervisorQuestion(b, ctx, result.state.pendingHumanRequest);
+        if (!answered) {
+          ctx.ui.setStatus("teo", msg.extension.waitingHuman(b.key));
+          return;
+        }
+        result = await b.workflow.superviseAndApply();
+      }
+      await this.applyOutsideBoundary(b, ctx, result);
+      return;
+    }
+    if (kickoff && state.phase === "agent_pending") {
+      const view = await this.requireStageView(b);
+      ctx.ui.setStatus("teo", msg.extension.status(b.key, view.stage.title, view.agent.title, view.state.supervisor.cycle));
+      this.pi.sendMessage(
+        { customType: "teo-stage", content: stageKickoff({ stageTitle: view.stage.title, agentTitle: view.agent.title }), display: true },
+        { triggerTurn: true },
+      );
+    }
+  }
+
+  private async applyOutsideBoundary(b: Binding, ctx: ExtensionContext, result: SupervisorResult): Promise<void> {
+    const decision = result.decision;
+    if (!decision) {
+      if (isHalted(result.state)) await this.finishResult(b, ctx, result.state);
+      else await this.refreshStatus(b, ctx);
+      return;
+    }
+    switch (decision.action) {
+      case "continue_current_agent":
+        this.pi.sendMessage({ customType: "teo-supervisor", content: msg.extension.continueAgent(decision.input.message), display: true }, { triggerTurn: true });
+        return;
+      case "restart_current_agent":
+        this.pi.sendMessage({ customType: "teo-supervisor", content: msg.extension.restartAgent(decision.input.reason, decision.input.message), display: true }, { triggerTurn: true });
+        return;
+      case "transition_stage": {
+        if (isHalted(result.state)) {
+          await this.finishResult(b, ctx, result.state);
+          return;
+        }
+        const view = await this.requireStageView(b);
+        if (view.stage.userSession === "new") {
+          await this.requestNextSession(b, ctx, view);
+          return;
+        }
+        const role = await this.roleSection(b, view);
+        this.pi.sendMessage({
+          customType: "teo-transition",
+          content: msg.extension.transition(b.key, view.stage.title, view.agent.title, decision.input.reason, decision.input.handoff ?? null, role),
+          display: true,
+        }, { triggerTurn: true });
+        return;
+      }
+      case "schedule_recheck":
+        await this.scheduleWaitTimer(b, ctx);
+        ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, result.state.wait?.dueAt ?? "?"));
+        return;
+      case "block_task":
+      case "cancel_task":
+        await this.finishResult(b, ctx, result.state);
+        return;
+      case "ask_human":
+        return;
+    }
+  }
+
+  private async requestNextSession(b: Binding, ctx: ExtensionContext, view: StageView, emit = true): Promise<void> {
+    if (emit && !view.state.hostSession?.awaitingNextSession) {
+      await b.store.tasks.commit(b.key, (s, c) => {
+        c.emit("session.next_requested", "cli", { sessionId: b.sessionId, stage: s.stage });
+        return { ...s, hostSession: s.hostSession ? { ...s.hostSession, awaitingNextSession: true, nextSessionId: null } : null };
+      }, { expectedVersion: view.state.version });
+    }
+    await this.restoreUserEnvironment(b);
+    b.modelAppliedFor = null;
+    ctx.ui.setStatus("teo", msg.extension.statusNext(b.key, view.stage.title));
+    ctx.ui.setEditorText("/teo next");
+    ctx.ui.notify(msg.extension.nextRequired(view.stage.title), "info");
+  }
+
+  private async scheduleWaitTimer(b: Binding, ctx: ExtensionContext): Promise<void> {
+    this.clearWaitTimer(b);
+    try {
+      const state = await b.store.tasks.load(b.key);
+      if (this.binding !== b || state.phase !== "waiting" || !state.wait || state.hostSession?.paused) return;
+      const delay = Math.max(0, Math.min(2_147_483_647, new Date(state.wait.dueAt).getTime() - b.app.clock.now().getTime()));
+      b.waitTimer = setTimeout(() => this.fireWaitTimer(b, ctx).catch((err) => ctx.ui.notify(errorText(b.app, err), "warning")), delay);
+    } catch (err) {
+      ctx.ui.notify(errorText(b.app, err), "warning");
+    }
+  }
+
+  private async fireWaitTimer(b: Binding, ctx: ExtensionContext): Promise<void> {
+    if (this.binding !== b) return;
+    b.waitTimer = null;
+    const state = await b.store.tasks.load(b.key);
+    if (state.phase !== "waiting" || !state.wait || state.hostSession?.paused) return;
+    if (b.app.clock.now().getTime() < new Date(state.wait.dueAt).getTime()) {
+      await this.scheduleWaitTimer(b, ctx);
+      return;
+    }
+    if (!ctx.isIdle()) {
+      b.waitTimer = setTimeout(() => this.fireWaitTimer(b, ctx).catch((err) => ctx.ui.notify(errorText(b.app, err), "warning")), 1000);
+      return;
+    }
+    const { waitingFor, message } = state.wait;
+    await b.workflow.finishWaiting();
+    this.pi.sendMessage({ customType: "teo-recheck", content: msg.extension.recheckDue(waitingFor, message), display: true }, { triggerTurn: true });
+  }
+
+  private clearWaitTimer(b: Binding): void {
+    if (b.waitTimer) clearTimeout(b.waitTimer);
+    b.waitTimer = null;
+  }
+
+  private async restoreUserEnvironment(b: Binding): Promise<void> {
+    this.pi.setActiveTools(b.saved.tools);
+    if (b.saved.model) await this.pi.setModel(b.saved.model).catch(() => false);
+    if (b.saved.thinking) this.pi.setThinkingLevel(b.saved.thinking);
   }
 
   private async stageView(b: Binding): Promise<StageView | null> {
@@ -515,6 +795,9 @@ export class ExtensionHost {
     actor: "human" | "cli",
   ): Promise<void> {
     b.lock.signal.throwIfAborted();
+    this.clearWaitTimer(b);
+    const before = await b.store.tasks.load(b.key);
+    if (before.phase === "agent_running") await b.workflow.interruptActiveRun("teo:stop");
     await b.store.tasks.commit(b.key, (s, c) => {
       if (!s.hostSession) return s;
       c.emit("session.unbound", actor, { sessionId: b.sessionId, reason });
@@ -536,6 +819,7 @@ export class ExtensionHost {
     const b = this.binding;
     if (!b) return;
     this.binding = null;
+    this.clearWaitTimer(b);
     await this.restore(b).catch(() => undefined);
     await b.workflow.dispose().catch(() => undefined);
     await b.release().catch(() => undefined);
@@ -548,6 +832,7 @@ export class ExtensionHost {
     const b = this.binding;
     this.binding = null;
     if (b) {
+      this.clearWaitTimer(b);
       try {
         await b.workflow.dispose();
       } finally {

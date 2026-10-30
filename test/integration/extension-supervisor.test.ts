@@ -172,6 +172,35 @@ describe("ExtensionHost X3: supervisor в конце хода", () => {
     }
   });
 
+  it("свободный вопрос показывает context отдельно и открывает пустое поле ввода", async () => {
+    const runtime = new FakeAgentRuntime().script(
+      "sessions/supervisor.jsonl",
+      turn.tool("ask_human", {
+        expectedStateVersion: "$expectedStateVersion",
+        question: "Подтвердите план или укажите корректировки",
+        context: "Проверено: plan.md существует, 274 строки.",
+        allowFreeText: true,
+      }),
+      turn.tool("block_task", {
+        expectedStateVersion: "$expectedStateVersion",
+        reason: "проверка диалога завершена",
+        resolutionHint: "не требуется",
+      }),
+    );
+    const { sb, pi, host, ctx } = await startWithRuntime(DED, "dev", runtime);
+    ctx.fakeUi.answers.push("Добавьте раздел рисков");
+    try {
+      const result = await pi.emit("agent_before_settle", settleEvent([user("Начни"), assistant("План готов")]), ctx) as { continue?: boolean };
+      expect(result.continue).toBe(false);
+      expect(ctx.fakeUi.notes).toContainEqual({ message: "Проверено: plan.md существует, 274 строки.", type: "info" });
+      expect(ctx.fakeUi.editors).toContainEqual({ title: "Подтвердите план или укажите корректировки", prefill: "" });
+      const response = (await events(sb)).find((e) => e.type === "human.responded" && e.payload.requestId !== null);
+      expect(response).toMatchObject({ type: "human.responded", payload: { answer: "Добавьте раздел рисков" } });
+    } finally {
+      await host.detach();
+    }
+  });
+
   it("сценарий подбора автомобиля проходит четыре роли в одной Pi-сессии до «Заказ оформлен»", async () => {
     const humanRefs: string[] = [];
     const runtime = new FakeAgentRuntime().script(

@@ -68,6 +68,7 @@ const stageSchema = z.strictObject({
   agent: refSchema.optional(),
   instructions: textSchema.optional(),
   session: z.enum(["fresh", "reuse"]).optional(),
+  userSession: z.enum(["same", "new"]).optional(),
   transitions: z.array(transitionSchema).optional(),
   recheck: recheckSchema.optional(),
   terminal: z.boolean().optional(),

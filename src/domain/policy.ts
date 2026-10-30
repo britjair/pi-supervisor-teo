@@ -32,6 +32,8 @@ export type RecheckSpec = {
 };
 
 export type SessionMode = "fresh" | "reuse";
+/** Пользовательская Pi-сессия при входе в этап расширения; CLI это поле игнорирует. */
+export type UserSessionMode = "same" | "new";
 
 export type WorkStage = {
   kind: "work";
@@ -41,6 +43,7 @@ export type WorkStage = {
   agent: string;
   instructions: string | null;
   session: SessionMode;
+  userSession: UserSessionMode;
   transitions: Transition[];
   recheck: RecheckSpec | null;
 };

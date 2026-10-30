@@ -55,6 +55,7 @@ describe("defaults", () => {
       agent: "worker",
       instructions: null,
       session: "fresh",
+      userSession: "same",
       transitions: [{ to: "b", when: "готово", guards: { evidence: "optional", humanResponse: "optional" } }],
       recheck: null,
     });

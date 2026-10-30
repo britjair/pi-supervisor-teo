@@ -43,6 +43,9 @@ export type EventPayloads = {
   "human.responded": { requestId: string | null; answer: string; selectedOption: string | null; channel?: "chat" };
   "session.bound": { sessionId: string; sessionFile: string | null };
   "session.unbound": { sessionId: string; reason: "stop" | "finished" | "lock_lost" | "other_session" };
+  "session.next_requested": { sessionId: string; stage: string };
+  "supervision.paused": { sessionId: string };
+  "supervision.resumed": { sessionId: string };
   "stage.transitioned": {
     from: string;
     to: string;

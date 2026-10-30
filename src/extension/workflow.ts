@@ -25,7 +25,7 @@ import type { CycleMemory, EngineCore } from "../workflow/context.js";
 import { applyDecision } from "../workflow/decision-executor.js";
 import { silentReporter } from "../workflow/reporter.js";
 import { awaitSupervisor, startSupervisor } from "../workflow/supervisor-step.js";
-import type { WaitControl } from "../workflow/wait-step.js";
+import { finishWait, waitHumanMessage, type WaitControl } from "../workflow/wait-step.js";
 
 const LAST_TEXT_MAX = 4 * 1024;
 const REPORT_TOOLS = ["report_result", "report_blocker"] as const;
@@ -314,10 +314,10 @@ export class ExtensionWorkflow {
     return lastAssistantText(messages);
   }
 
-  /** agent_running → supervisor → decision applied. */
-  async settleAndSupervise(event: AgentBeforeSettleEvent): Promise<SupervisorResult> {
+  /** agent_running → supervisor_pending, без запуска supervisor-а (используется /teo pause). */
+  async settleOnly(event: AgentBeforeSettleEvent): Promise<TaskState> {
     const state = await this.core.store.tasks.load(this.core.key);
-    if (state.phase !== "agent_running" || !state.currentRun) return { decision: null, state };
+    if (state.phase !== "agent_running" || !state.currentRun) return state;
     const run = state.currentRun;
     const lastText = await this.snapshotTranscript(run, event.context.llmMessages as unknown[]);
     const record = await this.core.runs().read(run.runId);
@@ -332,10 +332,70 @@ export class ExtensionWorkflow {
       ...(lastText ? { lastAssistantText: lastText.slice(-LAST_TEXT_MAX) } : {}),
     });
     this.currentReportedRun = null;
+    return this.core.store.tasks.load(this.core.key);
+  }
+
+  /** agent_running → supervisor → decision applied. */
+  async settleAndSupervise(event: AgentBeforeSettleEvent): Promise<SupervisorResult> {
+    const state = await this.settleOnly(event);
+    if (state.phase !== "supervisor_pending") return { decision: null, state };
     return this.superviseAndApply();
   }
 
-  /** Новый цикл supervisor-а после ответа на ask_human. */
+  /** Закрытие/падение host Pi посреди хода: run становится interrupted и ждёт supervisor recovery. */
+  async interruptActiveRun(signal: string | null = null): Promise<TaskState> {
+    const state = await this.core.store.tasks.load(this.core.key);
+    const run = state.currentRun;
+    if (state.phase !== "agent_running" || !run) return state;
+    const now = this.core.clock.now().toISOString();
+    const record = await this.core.runs().read(run.runId);
+    if (record) await this.core.runs().write({ ...record, settleReason: "interrupted", finishedAt: now });
+    return this.core.store.tasks.commit(this.core.key, (s, c) => {
+      c.emit("runtime.interrupted", "cli", { signal, phase: s.phase, runId: run.runId });
+      c.emit("agent.settled", "cli", { runId: run.runId, reason: "interrupted" });
+      return {
+        ...s,
+        status: "interrupted",
+        phase: "supervisor_pending",
+        currentRun: { ...run, status: "settled", settleReason: "interrupted", finishedAt: now },
+        supervisor: { ...s.supervisor, trigger: { kind: "recovered", ref: run.runId } },
+      };
+    }, { expectedVersion: state.version });
+  }
+
+  /** Восстановить оборванную фазу при session_start новой копии Pi. */
+  async recoverOnBind(): Promise<TaskState> {
+    let state = await this.core.store.tasks.load(this.core.key);
+    if (state.phase === "agent_running") state = await this.interruptActiveRun(null);
+    if (state.phase === "supervisor_running") {
+      state = await this.core.store.tasks.commit(this.core.key, (s, c) => {
+        c.emit("runtime.recovered", "cli", { phase: s.phase, action: "supervisor_reevaluate", details: { cycle: s.supervisor.cycle } });
+        return { ...s, status: "interrupted", phase: "supervisor_pending", supervisor: { ...s.supervisor, trigger: { kind: "reevaluate", ref: null } } };
+      }, { expectedVersion: state.version });
+    } else if (state.status === "interrupted" && (state.phase === "supervisor_pending" || state.phase === "decision_pending")) {
+      state = await this.core.store.tasks.commit(this.core.key, (s, c) => {
+        c.emit("runtime.recovered", "cli", { phase: s.phase, action: "host_session_resumed", details: { runId: s.currentRun?.runId ?? null } });
+        return s;
+      }, { expectedVersion: state.version });
+    }
+    return state;
+  }
+
+  async finishWaiting(): Promise<TaskState> {
+    const state = await this.core.store.tasks.load(this.core.key);
+    if (state.phase !== "waiting") return state;
+    await finishWait(this.core, state, "due");
+    return this.core.store.tasks.load(this.core.key);
+  }
+
+  async waitingHumanMessage(text: string): Promise<TaskState> {
+    const state = await this.core.store.tasks.load(this.core.key);
+    if (state.phase !== "waiting") return state;
+    await waitHumanMessage(this.core, state, text, "chat");
+    return this.core.store.tasks.load(this.core.key);
+  }
+
+  /** Новый цикл supervisor-а после ответа на ask_human или recovery. */
   async superviseAndApply(): Promise<SupervisorResult> {
     let state = await this.core.store.tasks.load(this.core.key);
     this.core.policy = this.core.store.policyOf(state.process);

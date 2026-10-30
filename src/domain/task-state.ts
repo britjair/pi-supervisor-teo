@@ -116,6 +116,12 @@ export type HostSession = {
   /** null — сессия Pi в памяти, без файла */
   sessionFile: string | null;
   boundAt: string;
+  /** /teo pause: роль и supervisor временно не вмешиваются, lock остаётся у Pi. */
+  paused: boolean;
+  /** Текущий этап требует новую пользовательскую сессию; продолжение — только /teo next. */
+  awaitingNextSession: boolean;
+  /** ID уже созданной через /teo next сессии; защищает от rebind старой session entry. */
+  nextSessionId: string | null;
 };
 
 export type TaskState = {
