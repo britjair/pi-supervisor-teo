@@ -62,6 +62,7 @@ export class FakePi {
 export type FakeUi = {
   notes: Note[];
   status: Map<string, string | undefined>;
+  statusUpdates: Array<{ key: string; text: string | undefined }>;
   /** Ответы диалогов по порядку вызова */
   answers: Array<string | undefined>;
   editorText: string;
@@ -81,7 +82,7 @@ export function fakeCtx(
     newSession?: ExtensionCommandContext["newSession"];
   },
 ): ExtensionCommandContext & { fakeUi: FakeUi } {
-  const ui: FakeUi = { notes: [], status: new Map(), answers: [], editorText: "", editors: [], ...opts.ui };
+  const ui: FakeUi = { notes: [], status: new Map(), statusUpdates: [], answers: [], editorText: "", editors: [], ...opts.ui };
   const next = async () => ui.answers.shift();
   const ctx = {
     cwd: opts.cwd,
@@ -99,7 +100,10 @@ export function fakeCtx(
     },
     ui: {
       notify: (message: string, type = "info") => void ui.notes.push({ message, type }),
-      setStatus: (key: string, text: string | undefined) => void ui.status.set(key, text),
+      setStatus: (key: string, text: string | undefined) => {
+        ui.status.set(key, text);
+        ui.statusUpdates.push({ key, text });
+      },
       select: next,
       input: next,
       editor: async (title: string, prefill?: string) => {

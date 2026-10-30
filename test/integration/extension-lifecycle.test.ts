@@ -138,6 +138,10 @@ describe("ExtensionHost X4: lifecycle", () => {
     try {
       await pi.emit("agent_before_settle", settleEvent([assistant("Пока не готово")]), ctx);
       expect(await state(sb)).toMatchObject({ phase: "waiting", wait: { waitingFor: "результат внешней проверки" } });
+      expect(ctx.fakeUi.status.get("teo")).toContain("⏳ ожидание до");
+      expect(ctx.fakeUi.status.get("teo")).toContain("осталось 1 мин 00 сек");
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(ctx.fakeUi.status.get("teo")).toContain("осталось 0 мин 59 сек");
       const internal = host as unknown as { binding: { waitTimer: unknown }; fireWaitTimer: (b: unknown, c: unknown) => Promise<void> };
       expect(internal.binding.waitTimer).not.toBeNull();
       vi.setSystemTime(new Date("2026-01-02T10:01:00.000Z"));

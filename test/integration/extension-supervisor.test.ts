@@ -64,6 +64,7 @@ describe("ExtensionHost X3: supervisor в конце хода", () => {
       messages.push(assistant("План готов"));
       const first = await pi.emit("agent_before_settle", settleEvent(messages), ctx) as { continue?: boolean; entries?: Array<{ content?: unknown }> };
       expect(first.continue).toBe(true);
+      expect(ctx.fakeUi.statusUpdates.some((u) => /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] supervisor проверяет/.test(u.text ?? ""))).toBe(true);
       expect(String(first.entries?.[0]?.content)).toContain("Переход к этапу «Выполнение»");
       expect(String(first.entries?.[0]?.content)).toContain("предыдущая роль завершена");
       const afterFirst = await state(sb);

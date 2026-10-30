@@ -73,9 +73,14 @@ type Binding = {
   modelAppliedFor: string | null;
   /** Таймер schedule_recheck живёт только пока открыта привязанная Pi-сессия. */
   waitTimer: ReturnType<typeof setTimeout> | null;
+  /** Обновляет обратный отсчёт в нижнем status bar раз в секунду. */
+  waitStatusTimer: ReturnType<typeof setInterval> | null;
 };
 
 type StageView = { state: TaskState; policy: LoadedPolicy; stage: WorkStage; agent: AgentDef };
+
+const SUPERVISOR_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const SUPERVISOR_SPINNER_MS = 120;
 
 export class ExtensionHost {
   private binding: Binding | null = null;
@@ -289,8 +294,7 @@ export class ExtensionHost {
       await b.workflow.settleOnly(event);
       return;
     }
-    ctx.ui.setStatus("teo", msg.extension.supervisorChecking(b.key, current.supervisor.cycle + 1));
-    let result = await b.workflow.settleAndSupervise(event);
+    let result = await this.withSupervisorStatus(b, ctx, () => b.workflow.settleAndSupervise(event));
 
     // ask_human может породить следующий supervisor-цикл прямо в том же boundary (D39).
     for (;;) {
@@ -300,12 +304,13 @@ export class ExtensionHost {
         return;
       }
       if (result.decision.action !== "ask_human") break;
+      ctx.ui.setStatus("teo", msg.extension.waitingHuman(b.key));
       const answered = await this.answerSupervisorQuestion(b, ctx, result.state.pendingHumanRequest);
       if (!answered) {
         ctx.ui.setStatus("teo", msg.extension.waitingHuman(b.key));
         return { entries: [customMessage(msg.extension.questionDeferred)], continue: false };
       }
-      result = await b.workflow.superviseAndApply();
+      result = await this.withSupervisorStatus(b, ctx, () => b.workflow.superviseAndApply());
     }
 
     return this.applyInHostSession(b, ctx, result);
@@ -399,7 +404,6 @@ export class ExtensionHost {
         return { entries: [customMessage(text)], continue: true };
       }
       case "schedule_recheck":
-        ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, result.state.wait?.dueAt ?? "?"));
         await this.scheduleWaitTimer(b, ctx);
         return { entries: [customMessage(msg.extension.recheckScheduled(decision.input.waitingFor, result.state.wait?.dueAt ?? "?"))], continue: false };
       case "block_task":
@@ -537,6 +541,7 @@ export class ExtensionHost {
       saved: { tools: this.pi.getActiveTools(), model: ctx.model, thinking: this.pi.getThinkingLevel() },
       modelAppliedFor: null,
       waitTimer: null,
+      waitStatusTimer: null,
     };
     if (!opts.auto) this.pi.appendEntry<BindingEntry>(BINDING_ENTRY, { key, projectRoot: store.layout.projectRoot });
 
@@ -586,10 +591,10 @@ export class ExtensionHost {
     }
     if (state.phase === "waiting") {
       await this.scheduleWaitTimer(b, ctx);
-      ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, state.wait?.dueAt ?? "?"));
       return;
     }
     if (state.phase === "human_pending") {
+      ctx.ui.setStatus("teo", msg.extension.waitingHuman(b.key));
       const answered = await this.answerSupervisorQuestion(b, ctx, state.pendingHumanRequest);
       if (!answered) {
         ctx.ui.setStatus("teo", msg.extension.waitingHuman(b.key));
@@ -598,14 +603,15 @@ export class ExtensionHost {
       state = await b.store.tasks.load(b.key);
     }
     if (state.phase === "supervisor_pending" || state.phase === "decision_pending") {
-      let result = await b.workflow.superviseAndApply();
+      let result = await this.withSupervisorStatus(b, ctx, () => b.workflow.superviseAndApply());
       while (result.decision?.action === "ask_human") {
+        ctx.ui.setStatus("teo", msg.extension.waitingHuman(b.key));
         const answered = await this.answerSupervisorQuestion(b, ctx, result.state.pendingHumanRequest);
         if (!answered) {
           ctx.ui.setStatus("teo", msg.extension.waitingHuman(b.key));
           return;
         }
-        result = await b.workflow.superviseAndApply();
+        result = await this.withSupervisorStatus(b, ctx, () => b.workflow.superviseAndApply());
       }
       await this.applyOutsideBoundary(b, ctx, result);
       return;
@@ -654,7 +660,6 @@ export class ExtensionHost {
       }
       case "schedule_recheck":
         await this.scheduleWaitTimer(b, ctx);
-        ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, result.state.wait?.dueAt ?? "?"));
         return;
       case "block_task":
       case "cancel_task":
@@ -684,7 +689,15 @@ export class ExtensionHost {
     try {
       const state = await b.store.tasks.load(b.key);
       if (this.binding !== b || state.phase !== "waiting" || !state.wait || state.hostSession?.paused) return;
-      const delay = Math.max(0, Math.min(2_147_483_647, new Date(state.wait.dueAt).getTime() - b.app.clock.now().getTime()));
+      const dueAt = state.wait.dueAt;
+      const render = () => {
+        if (this.binding !== b) return;
+        const remaining = formatWaitRemaining(new Date(dueAt).getTime() - b.app.clock.now().getTime());
+        ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, dueAt, remaining));
+      };
+      render();
+      b.waitStatusTimer = setInterval(render, 1000);
+      const delay = Math.max(0, Math.min(2_147_483_647, new Date(dueAt).getTime() - b.app.clock.now().getTime()));
       b.waitTimer = setTimeout(() => this.fireWaitTimer(b, ctx).catch((err) => ctx.ui.notify(errorText(b.app, err), "warning")), delay);
     } catch (err) {
       ctx.ui.notify(errorText(b.app, err), "warning");
@@ -695,7 +708,10 @@ export class ExtensionHost {
     if (this.binding !== b) return;
     b.waitTimer = null;
     const state = await b.store.tasks.load(b.key);
-    if (state.phase !== "waiting" || !state.wait || state.hostSession?.paused) return;
+    if (state.phase !== "waiting" || !state.wait || state.hostSession?.paused) {
+      this.clearWaitTimer(b);
+      return;
+    }
     if (b.app.clock.now().getTime() < new Date(state.wait.dueAt).getTime()) {
       await this.scheduleWaitTimer(b, ctx);
       return;
@@ -705,13 +721,16 @@ export class ExtensionHost {
       return;
     }
     const { waitingFor, message } = state.wait;
+    this.clearWaitTimer(b);
     await b.workflow.finishWaiting();
     this.pi.sendMessage({ customType: "teo-recheck", content: msg.extension.recheckDue(waitingFor, message), display: true }, { triggerTurn: true });
   }
 
   private clearWaitTimer(b: Binding): void {
     if (b.waitTimer) clearTimeout(b.waitTimer);
+    if (b.waitStatusTimer) clearInterval(b.waitStatusTimer);
     b.waitTimer = null;
+    b.waitStatusTimer = null;
   }
 
   private async restoreUserEnvironment(b: Binding): Promise<void> {
@@ -775,6 +794,26 @@ export class ExtensionHost {
     }
     const thinking = view.agent.thinking ?? ref.thinking;
     if (thinking) this.pi.setThinkingLevel(thinking);
+  }
+
+  private async withSupervisorStatus<T>(b: Binding, ctx: ExtensionContext, work: () => Promise<T>): Promise<T> {
+    const state = await b.store.tasks.load(b.key);
+    const cycle = state.phase === "decision_pending" ? state.supervisor.cycle : state.supervisor.cycle + 1;
+    let index = 0;
+    const render = () => {
+      if (this.binding === b) ctx.ui.setStatus("teo", msg.extension.supervisorChecking(b.key, cycle, SUPERVISOR_SPINNER[index] ?? "⠋"));
+      index = (index + 1) % SUPERVISOR_SPINNER.length;
+    };
+    render();
+    const timer = setInterval(render, SUPERVISOR_SPINNER_MS);
+    try {
+      return await work();
+    } catch (err) {
+      await this.refreshStatus(b, ctx).catch(() => undefined);
+      throw err;
+    } finally {
+      clearInterval(timer);
+    }
   }
 
   private async refreshStatus(b: Binding, ctx: ExtensionContext): Promise<void> {
@@ -849,6 +888,13 @@ export class ExtensionHost {
       return undefined;
     }
   }
+}
+
+function formatWaitRemaining(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes} мин ${String(seconds).padStart(2, "0")} сек`;
 }
 
 function customMessage(content: string): NonNullable<AgentBeforeSettleEventResult["entries"]>[number] {
