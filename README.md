@@ -1,117 +1,186 @@
-# pi-supervisor-teo
+# Teo — Workflow Supervisor for Pi
 
-CLI и расширение Pi `teo` ведут задачи по процессам из `~/.pi/teo/<процесс>.md`: разработка, подбор автомобиля, любой другой процесс с этапами, ролями и проверяемыми переходами. Агенты и supervisor работают через Pi SDK 1.4.0. План режима расширения — [docs/07-extension-mode.md](docs/07-extension-mode.md). Спецификация — [docs/](docs/README.md), исходные цели — [SDLC_CLI_SPEC.md](SDLC_CLI_SPEC.md).
+Teo is a CLI and [Pi](https://github.com/badlogic/pi-mono) extension that guides long-running tasks through configurable workflows. A workflow defines stages, agent roles, tools, models, validation rules, and allowed transitions. Teo keeps durable task state, coordinates agent and supervisor sessions, and records an auditable event history.
 
-## Статус
+The project uses Pi SDK 1.4.0 and supports both an interactive terminal interface and native `/teo` commands inside Pi.
 
-Готовы этапы M1–M6 ([docs/06-implementation.md §3](docs/06-implementation.md#3-этапы-реализации)), R1 (переименование), R2 (несколько процессов), G1 (режим цели), X1–X4 из [docs/07-extension-mode.md §6](docs/07-extension-mode.md#6-этапы-реализации):
+## Features
 
-- расширение Pi (X1–X4): тот же пакет содержит `dist/extension.js`; работают `/teo start`, `/teo goal`, `/teo resume`, `/teo next`, `/teo pause`, `/teo recover`, `/teo stop`, `/teo status`, `/teo history` и `/teo help`. Задача привязывается к сессии Pi, процесс держит project lock, роль/инструменты/модель берутся из текущего этапа Policy, сообщения пользователя пишутся в журнал. В конце каждого хода отдельная supervisor-сессия проверяет evidence и применяет решение. `userSession: new` переносит этап в дочернюю Pi-сессию, ожидания продолжаются таймером, пауза возвращает обычное окружение Pi, а оборванный ход восстанавливается при `session_start`;
+- Markdown-based workflow definitions stored in `~/.pi/teo/`
+- Goal mode for tasks that do not need a custom workflow
+- Persistent task state and append-only event history in `.teo/`
+- Project locking with heartbeat and recovery support
+- Separate agent and supervisor sessions with evidence-based transitions
+- Model profiles with automatic fallback on quota and rate-limit errors
+- Interactive Ink UI and plain output for scripts and pipes
+- Recovery tools for interrupted sessions, changed policies, and damaged state
+- Secret redaction for common token, credential, and authorization formats
+- Pi extension lifecycle support, including pause, resume, waiting timers, and session restoration
 
-- профили моделей и fallback (D44–D49, [docs/08-model-profiles.md](docs/08-model-profiles.md)): цепочки моделей для ролей в `~/.pi/teo/models.md` с именами, как в Pi (`GPT-5.5`, `Opus-5.5:high`, `Gemini Pro 3.1`); ошибки лимитов и квот (`usage limit`, 429) не блокируют задачу; supervisor и агент прозрачно переходят на резервную модель, а при исчерпании всех моделей задача ожидает с таймером обратного отсчёта;
+## Requirements
 
-- режим цели (G1): `teo new KEY --goal "…"` или пункт «Цель» в форме — задача без своего процесса по встроенному шаблону `processes/goal.md`; работает и без единого файла в `~/.pi/teo/`;
+- Node.js 22.19 or newer
+- npm
+- Git
+- Pi coding agent 1.4.0
+- Docker, OrbStack, or Colima for the containerized development workflow
 
-- несколько процессов (R2): каталог `~/.pi/teo/`, задача запоминает процесс (`state.process`), `teo new --process`, выбор процесса в форме, колонка процесса в меню и сводках; невалидный или удалённый процесс помечается ⚠ и не мешает задачам других процессов;
+## Installation from Source
 
-- загрузчик и валидатор Policy (`src/policy/`): preflight, front matter, схема, граф, hash, структурный diff, снимки;
-- хранилище `.teo/` (`src/state/`): атомарная запись, `state.json` с инвариантами и outbox, журнал событий с ремонтом хвоста, обнаружение подмены state, `index.json`, project lock с takeover и heartbeat, `debug.log` (последний процесс, ротация в `.1`, ≤ 5 MB);
-- команды `teo` (Ink-меню в TTY, линейный режим для pipe/`--plain`), `new` (создаёт и запускает задачу; `--no-run` создаёт без запуска), `resume`, `status`, `history`, `cancel`, `recover`, `doctor [--fix]`;
-- движок M3: фазы, решения supervisor-а, вопросы человеку, ожидание и перепроверка, изменение Policy, recovery и fault-injection;
-- интеграция Pi SDK 1.4.0 (M4): модель, сессии и их инспекция, TypeBox-адаптер инструментов, inline guard;
-- TUI M5: один Ink root для меню, форм, потока событий, human prompt и ожидания; `Ctrl+C` с подтверждением во время хода, `t` для thinking, `s` для статуса, `Enter`/`m`/`q` в ожидании; plain-репортёр в формате `docs/05-cli-ui.md §5`;
-- hardening M6:
-  - redaction каждого payload события перед записью (ответ в нативном диалоге — дословно; обычное сообщение чата расширения проходит redaction) и расширенный набор форматов: OpenAI/Anthropic, Stripe, GitHub, GitLab, Slack, AWS, Google, Atlassian, npm, PyPI, Docker Hub, Hugging Face, SendGrid, Telegram, JWT, PEM/OpenSSH/PGP, заголовки `Authorization`, пароли в URL, присваивания `*_TOKEN=…`/`"password": …`; счётчики `inputTokens` и т. п. не скрываются;
-  - `teo recover` для всех ситуаций `docs/05-cli-ui.md §2.1`: выбор этапа, принятие новой Policy, подмена state (показ diff, «восстановить state до подмены» или «принять как есть»), повреждённая сессия агента (restart / supervisor / блокировка), разблокировка с комментарием; флаги `--set-stage` и `--accept-policy` — без меню;
-  - `teo doctor --fix`: по одному исправлению с подтверждением — протухший lock, lock другого хоста (только явным «да»), `.gitignore`, осиротевшие `*.tmp`, хвост журнала и outbox, `index.json`. Без терминала выполняются только безопасные исправления.
-
-### Чек-лист приёмки ([docs/06-implementation.md §5](docs/06-implementation.md#5-чек-лист-приёмки))
-
-| # | Чем проверяется |
-|---|---|
-| 1 | `test/unit/policy-loader.test.ts`, `test/integration/cli-preflight.test.ts` (каждая команда × каждая ошибка Policy) |
-| 2 | `test/unit/no-process-literals.test.ts` |
-| 3 | `test/e2e/pi-smoke.test.ts`: две Policy с разными этапами и агентами на одном `dist/` |
-| 4, 6, 15 | `test/unit/ink-ui.test.tsx`, `test/unit/ink-human-io.test.tsx`, `test/integration/storage-cli.test.ts`, сценарий 18 |
-| 5, 16 | сценарии 5, 12–16, 23 (`test/integration/engine-*.test.ts`) |
-| 7 | сценарий 19, `test/unit/lock-manager.test.ts` |
-| 8 | guard и набор tools агента, сценарий 22 |
-| 9, 11, 13, 14 | `engine-basic`, сценарии 4–7, 9, 15, 20, 23–28 |
-| 10 | `test/unit/prompts.test.ts`: snapshot-ы промптов на двух Policy, сценарии 10, 17 |
-| 12 | guards: сценарий 11, `test/unit/agent-guard-evidence.test.ts` |
-| 17 | e2e `discover → execute → done` |
-
-## Разработка
-
-На хост ничего не ставится: Node, зависимости, сборка и тесты живут в контейнере (Docker / OrbStack / Colima). Pi SDK зафиксирован на 1.4.0; его транзитивный `undici` переопределён на исправленную версию 8.12.3 (`npm audit`: 0 проблем). Образ — `docker/dev.Dockerfile` (Node 26.12.1 — та же версия, что у Node из Homebrew, на котором работает `pi`, плюс git). `node_modules` и кэш npm лежат в именованных volume `pi-supervisor-teo-node-modules` и `pi-supervisor-teo-npm-cache`, поэтому каталог `node_modules/` на хосте пустой.
+Clone the repository, install dependencies, build the project, and link the CLI:
 
 ```bash
-scripts/dev.sh npm ci            # зависимости по lockfile
-# Контекст docker закреплён в scripts/dev.sh: orbstack (переопределяется TEO_DEV_DOCKER_CONTEXT)
-scripts/dev.sh npm run check     # typecheck + lint + build + тесты
-scripts/dev.sh npm test          # обычные тесты, e2e пропущен
-scripts/e2e.sh                   # платный e2e через реальную модель Pi; временная копия auth/config
-TEO_DEV_REBUILD=1 scripts/dev.sh true   # пересобрать образ
+git clone https://github.com/britjair/pi-supervisor-teo.git
+cd pi-supervisor-teo
+npm ci
+npm run build
+npm link
 ```
 
-Проверить свой процесс, не трогая `~/.pi`, можно на копии:
+This makes the `teo` command available globally. To remove the link later, run:
 
 ```bash
-scripts/dev.sh sh -c 'mkdir -p /tmp/h/.pi/teo && cp examples/processes/*.md /tmp/h/.pi/teo/ && HOME=/tmp/h node dist/cli.js doctor'
+npm unlink -g pi-supervisor-teo
 ```
 
-### Тесты
+### Install the Pi Extension
 
-- `test/fixtures/policies/invalid/<CODE>.md` — по фикстуре на каждую ошибку. Маркер `# expect: CODE` стоит на строке, где должна сообщаться ошибка: тест сверяет коды и номера строк со всеми маркерами. `# expect-unlocated: CODE` — ошибка без номера строки.
-- `test/fixtures/policies/valid/` и `examples/processes/` должны загружаться. Предупреждения отмечаются маркером `# warn: CODE`.
-- `test/unit/no-process-literals.test.ts` (критерий приёмки 2): ни один строковый литерал в `src/` не совпадает с id этапа или агента из фикстур и не содержит название этапа.
-- Тесты хранилища `test/integration/storage-cli.test.ts` запускают собранный `dist/cli.js` с подменённым `HOME` и `TZ=UTC`. Сбой в именованной точке включается переменной `TEO_FAULT=after-state-commit:kill` (D27): так тест убивает процесс между записью state и журналом.
-- `test/integration/engine-*.test.ts` прогоняют движок на `FakeAgentRuntime` с временным проектом и инъекцией сбоя в каждой именованной точке каждого её прохождения; отдельные unit-тесты проверяют guard, evidence и остановку активной сессии.
-- Меню и формы тестируются in-process через `ScriptedHumanIO` (`test/helpers/`); Ink-компоненты меню, формы, human prompt, выполнения и ожидания — через `ink-testing-library` в `test/unit/ink-ui.test.tsx`.
-- `test/integration/recover.test.ts` — каждая ситуация `teo recover` и флаги через CLI; `test/integration/doctor-fix.test.ts` — исправления `doctor --fix`, отказ, lock другого хоста, живой владелец.
-- `test/unit/redact.test.ts` — реальные форматы токенов (собираются из частей, чтобы сканеры секретов не реагировали на фикстуры) и отсутствие ложных срабатываний на хешах, ULID и счётчиках токенов.
-- `test/unit/prompts.test.ts` — snapshot-ы промптов в `test/unit/__snapshots__/prompts/` на двух Policy; после осознанного изменения шаблона обновляются через `scripts/dev.sh npx vitest run -u test/unit/prompts.test.ts`.
-- `test/integration/processes.test.ts` — несколько процессов: выбор, `--process`, невалидный и удалённый процесс, `doctor` по процессам.
-- `test/integration/goal-mode.test.ts` — режим цели: встроенный шаблон, `--goal`, форма, движок на шаблоне цели.
-- `test/integration/extension-load.test.ts` — пакет как расширение: настоящий загрузчик Pi, манифест без предупреждений, `/teo` через сессию SDK и через `pi -e <пакет> -p`.
-- `test/integration/extension-host.test.ts` — X2 на фейковом `ExtensionAPI`: привязка и восстановление, lock, роль, tools/model, guard, журнал чата, stop.
-- `test/integration/extension-supervisor.test.ts` — X3: report tools, settle, отдельный supervisor, continue/restart/transition/ask_human и полный процесс подбора автомобиля в одной сессии; `test/e2e/extension-host.test.ts` — настоящие host-модель и supervisor доводят задачу до terminal.
-- `test/integration/extension-lifecycle.test.ts` — X4: `userSession: new`, `/teo next`, таймер recheck, `/teo pause`/resume и recovery после закрытия Pi.
-- Полный обычный прогон X4 + D44–D49: 54 файла, 519 тестов; реальный Pi e2e: 6 тестов. Отдельно: `scripts/e2e.sh test/e2e/extension-host.test.ts`.
-- `scripts/e2e.sh` монтирует только нужные файлы из `~/.pi/agent` **read-only**, копирует их во временный контейнер и удаляет список установленных пакетов/расширений из копии настроек. Исходный `~/.pi` не изменяется. Для другого источника: `TEO_E2E_AGENT_DIR=<каталог> scripts/e2e.sh`. E2E делает реальные вызовы модели и может стоить денег.
-
-## Установка на хост
-
-`teo` работает на хосте: ему нужны проект, `~/.pi` и те же Docker и git, что у агентов. Новый Node не нужен — подходит Node 26.12.1 из Homebrew, на котором уже работает `pi` (нужен ≥ 22.19).
-
-Зависимости ставятся **на той же платформе, где запускается CLI**: в `@earendil-works/pi-tui` есть платформенные `.node`-файлы, поэтому Linux-дерево `node_modules` из контейнера на macOS переносить нельзя. Volume контейнера не пересекается с каталогом `node_modules/` хоста.
-
-Выбран стандартный путь ([docs/06-implementation.md §3, M6](docs/06-implementation.md#m6-hardening-и-выпуск)):
+Build the project first, then either load the extension for one session or install it permanently:
 
 ```bash
-cd ~/code/pi-supervisor-teo
-npm ci && npm run build && npm link   # команда teo появляется в /opt/homebrew/bin
+pi -e /path/to/pi-supervisor-teo
+pi install /path/to/pi-supervisor-teo
 ```
 
-`npm link` ссылается на рабочую копию: после `git pull` достаточно `npm ci && npm run build`. Удалить: `npm unlink -g pi-supervisor-teo`. Pi SDK — dev-зависимость пакета (для расширения Pi подставляет свой), поэтому `npm ci` — без `--omit=dev`.
+The package provides both `dist/cli.js` and `dist/extension.js`.
 
-Расширение Pi из того же каталога (после `npm run build`):
+## Quick Start
 
-```bash
-pi -e ~/code/pi-supervisor-teo        # попробовать в одной сессии, без установки
-pi install ~/code/pi-supervisor-teo   # подключить насовсем (пишет в ~/.pi/agent/settings.json)
-```
-
-В сессии: `/teo start [KEY]`, `/teo goal <цель>`, `/teo sessions` (список с номерами и выбор), `/teo resume [KEY/№]`, `/teo next`, `/teo pause`, `/teo recover KEY`, `/teo stop`, `/teo status`, `/teo history KEY`, `/teo help`.
-
-Затем:
+Create the workflow directory and copy one of the examples:
 
 ```bash
 mkdir -p ~/.pi/teo
-cp examples/processes/dev.md ~/.pi/teo/dev.md                       # процесс разработки
-cp examples/processes/car-selection.md ~/.pi/teo/car-selection.md   # тестовый процесс подбора автомобиля
-cd <проект> && teo doctor            # процессы, Pi SDK, модели, авторизация, хранилище
-teo                                  # меню: создать или продолжить задачу
+cp examples/processes/dev.md ~/.pi/teo/dev.md
 ```
 
-Эти команды выполняет пользователь: при разработке на хост ничего не ставилось, установка на macOS не запускалась.
+Validate the environment and start the interactive CLI:
+
+```bash
+cd /path/to/your/project
+teo doctor
+teo
+```
+
+Create a task directly:
+
+```bash
+teo new PROJECT-123 --process dev
+```
+
+Create a task from a goal without a custom workflow:
+
+```bash
+teo new PROJECT-123 --goal "Add structured JSON logging"
+```
+
+## CLI Commands
+
+| Command | Description |
+| --- | --- |
+| `teo` | Open the interactive task menu |
+| `teo new KEY` | Create and start a task |
+| `teo resume KEY` | Resume an existing task |
+| `teo sessions` | List task sessions and resume one by number |
+| `teo status` | Show task status |
+| `teo history KEY` | Show task history |
+| `teo cancel KEY` | Cancel a task |
+| `teo recover KEY` | Recover an interrupted or inconsistent task |
+| `teo doctor` | Validate workflows, dependencies, and local state |
+| `teo doctor --fix` | Repair supported local-state problems interactively |
+
+Use `--plain` when running commands in a pipe or a non-interactive environment.
+
+## Pi Commands
+
+When the extension is loaded, the following commands are available inside Pi:
+
+```text
+/teo start [KEY]
+/teo goal <goal>
+/teo sessions
+/teo resume [KEY or session number]
+/teo next
+/teo pause
+/teo recover KEY
+/teo stop
+/teo status
+/teo history KEY
+/teo help
+```
+
+Teo binds a task to the current Pi session, applies the stage-specific role, tools, and model, and asks a separate supervisor session to evaluate evidence after each turn.
+
+## Workflow Files
+
+Workflow files are Markdown documents with YAML front matter. Store them in `~/.pi/teo/` and select one with `teo new --process <name>`.
+
+Examples are available in [`examples/processes/`](examples/processes/):
+
+- [`dev.md`](examples/processes/dev.md) — software development workflow
+- [`car-selection.md`](examples/processes/car-selection.md) — multi-stage demonstration workflow
+
+Teo validates the workflow schema and transition graph before starting a task. Each task stores a policy snapshot and detects incompatible workflow changes before continuing.
+
+## Model Profiles
+
+Optional model chains can be configured in `~/.pi/teo/models.md`. Teo can switch to a fallback model when a provider reports a usage limit, quota exhaustion, or rate limit. If every configured model is unavailable, the task enters a timed waiting state and can retry later.
+
+See [`docs/08-model-profiles.md`](docs/08-model-profiles.md) for the current configuration format.
+
+## Development
+
+Development dependencies, builds, and tests can run inside the provided container environment without installing an additional Node.js toolchain on the host.
+
+```bash
+scripts/dev.sh npm ci
+scripts/dev.sh npm run check
+scripts/dev.sh npm test
+```
+
+Rebuild the development image when necessary:
+
+```bash
+TEO_DEV_REBUILD=1 scripts/dev.sh true
+```
+
+The main verification command runs type checking, linting, a production build, and the standard test suite:
+
+```bash
+scripts/dev.sh npm run check
+```
+
+### End-to-End Tests
+
+Real Pi end-to-end tests make model calls and may incur provider costs:
+
+```bash
+scripts/e2e.sh
+```
+
+The script mounts only the required Pi configuration files as read-only input, copies them into an isolated container, and removes installed package and extension entries from the temporary settings.
+
+## Project Structure
+
+```text
+src/policy/       Workflow loading, validation, snapshots, and diffs
+src/state/        Durable task state, event storage, indexes, and locks
+src/workflow/     Workflow execution and supervisor decisions
+src/agents/       Agent runtimes, prompts, tools, and session handling
+src/extension/    Pi extension commands and lifecycle integration
+src/ui/           Interactive and plain terminal interfaces
+test/             Unit, integration, and end-to-end tests
+```
+
+## Design Documentation
+
+Detailed design and implementation documents are available in [`docs/`](docs/README.md). The original project specification is available in [`SDLC_CLI_SPEC.md`](SDLC_CLI_SPEC.md).
