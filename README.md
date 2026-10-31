@@ -71,10 +71,16 @@ teo doctor
 teo
 ```
 
-Create a task directly:
+Create a task interactively. Teo asks whether a Jira issue already exists, accepts its URL/key, or offers to create one from the initial description:
 
 ```bash
-teo new PROJECT-123 --process dev
+teo new
+```
+
+The explicit legacy form is still available for scripts:
+
+```bash
+teo new PROJECT-123 --process dev --title "Title" --description-file requirements.md
 ```
 
 Create a task from a goal without a custom workflow:
@@ -88,7 +94,7 @@ teo new PROJECT-123 --goal "Add structured JSON logging"
 | Command | Description |
 | --- | --- |
 | `teo` | Open the interactive task menu |
-| `teo new KEY` | Create and start a task |
+| `teo new [KEY]` | Interactively start from Jira or create a task; explicit KEY keeps the script-friendly form |
 | `teo resume KEY` | Resume an existing task |
 | `teo sessions` | List task sessions and resume one by number |
 | `teo status` | Show task status |
@@ -118,7 +124,7 @@ When the extension is loaded, the following commands are available inside Pi:
 /teo help
 ```
 
-Teo binds a task to the current Pi session, applies the stage-specific role, tools, and model, and asks a separate supervisor session to evaluate evidence after each turn.
+Teo binds a task to the current Pi session, applies the stage-specific role, tools, and model, and asks a separate supervisor session to evaluate evidence after each turn. Jira setup is documented in [`docs/09-jira.md`](docs/09-jira.md).
 
 ## Workflow Files
 

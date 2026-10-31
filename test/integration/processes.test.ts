@@ -1,7 +1,7 @@
 // Несколько процессов в ~/.pi/teo/ (docs/07-extension-mode.md §3, D32, D41).
 
 import { readFileSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runInteractive } from "../../src/commands/interactive.js";
@@ -67,10 +67,10 @@ describe("несколько процессов", () => {
   it("в терминале процесс выбирается в форме", async () => {
     const sb = await twoProcesses();
     const human = new ScriptedHumanIO([
+      { select: "Нет, Jira-задачи ещё нет" },
+      { multiline: "Доставка\nописание" },
+      { confirm: false },
       { select: "delivery — начальный этап «Набросок»" },
-      { input: "B-7" },
-      { input: "Доставка" },
-      { multiline: "описание" },
       { select: "Создать" },
     ]);
     const ctx = testContext(sb, { human });
@@ -78,7 +78,9 @@ describe("несколько процессов", () => {
     expect(human.remaining).toBe(0);
     expect(human.printed).toContain("Процесс: delivery");
     expect(human.printed).toContain("Начальный этап: Набросок (agent: drafter)");
-    expect((await state(sb, "B-7")).process).toBe("delivery");
+    const [key] = await readdir(path.join(sb.project, ".teo", "tasks"));
+    expect(key).toMatch(/^LOCAL-/);
+    expect((await state(sb, key ?? "")).process).toBe("delivery");
   });
 
   it("невалидный процесс: его задачи помечены, задачи других процессов работают (D41)", async () => {

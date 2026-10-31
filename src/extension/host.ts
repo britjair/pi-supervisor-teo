@@ -24,7 +24,8 @@ import { agentBuiltinTools } from "../agents/session-spec.js";
 import { reportBlockerSchema, reportResultSchema } from "../agents/tools/child-tools.js";
 import type { AppContext } from "../app.js";
 import { startCommand } from "../app.js";
-import { goalTitle, createTask, keyError, titleError } from "../commands/new.js";
+import { createTask, goalTitle, keyError, titleError } from "../commands/new.js";
+import { collectTaskSeed } from "../commands/task-source.js";
 import { getAgent, getStage, parseModelRef, type AgentDef, type LoadedPolicy, type WorkStage } from "../domain/policy.js";
 import type { ReportBlockerInput, ReportResultInput } from "../domain/runs.js";
 import { isFinished, isHalted, type HumanRequest, type TaskState } from "../domain/task-state.js";
@@ -35,6 +36,8 @@ import { defaultCooldownTracker } from "../util/model-exhaustion.js";
 import { collectSessionItems } from "../commands/sessions.js";
 import type { HeldLock } from "../state/lock-manager.js";
 import type { ProjectStore } from "../state/project-store.js";
+import { loadJiraConfig } from "../integrations/jira.js";
+import type { Choice, HumanIO, Validate } from "../ui/human-io.js";
 import { msg } from "../ui/messages.js";
 import { readTaskDescription } from "../workflow/agent-step.js";
 import { errorText, extensionAppContext } from "./run-command.js";
@@ -112,28 +115,47 @@ export class ExtensionHost {
 
   // ---------- команды ----------
 
-  /** /teo start [KEY]: новая задача через диалоги Pi, затем привязка и старт роли этапа. */
+  /** /teo start [JIRA-KEY/URL]: Jira-aware создание задачи, затем привязка и старт роли этапа. */
   async start(ctx: ExtensionCommandContext, keyArg: string | undefined): Promise<void> {
     this.assertFree();
     const { ctx: app } = extensionAppContext(ctx.cwd, this.homeDir);
     const { store } = await startCommand(app);
     const existing = await store.tasks.listKeys();
-    const process = await this.chooseProcess(ctx, store);
-    if (!process) return;
-    const isGoal = process === GOAL_PROCESS;
-    const key = keyArg ?? (await ctx.ui.input(msg.extension.askKey, "PAY-142"))?.trim();
-    if (!key) return;
-    const keyProblem = keyError(key, existing);
-    if (keyProblem) throw new UsageError(keyProblem);
-    const description = (await ctx.ui.editor(isGoal ? msg.newTask.goal : msg.newTask.description))?.trim();
-    if (!description) return;
-    const titleAnswer = await ctx.ui.input(msg.newTask.taskTitle, isGoal ? goalTitle(description) : "");
-    if (titleAnswer === undefined) return;
-    const title = titleAnswer.trim() || (isGoal ? goalTitle(description) : "");
-    const titleProblem = titleError(title);
-    if (titleProblem) throw new UsageError(titleProblem);
-    const state = await createTask(store, { key, title, description, process });
-    await this.bind(ctx, state.key, { kickoff: true });
+    const configuredJira = await loadJiraConfig(app.homeDir, app.env);
+    if (keyArg && (!configuredJira.baseUrl || !configuredJira.token)) {
+      const process = await this.chooseProcess(ctx, store);
+      if (!process) return;
+      const problem = keyError(keyArg, existing);
+      if (problem) throw new UsageError(problem);
+      const description = (await ctx.ui.editor(process === GOAL_PROCESS ? msg.newTask.goal : msg.newTask.description))?.trim();
+      if (!description) return;
+      const answer = await ctx.ui.input(msg.newTask.taskTitle, process === GOAL_PROCESS ? goalTitle(description) : "");
+      if (answer === undefined) return;
+      const title = answer.trim() || (process === GOAL_PROCESS ? goalTitle(description) : "");
+      const titleProblem = titleError(title);
+      if (titleProblem) throw new UsageError(titleProblem);
+      const state = await createTask(store, { key: keyArg, title, description, process });
+      await this.bind(ctx, state.key, { kickoff: true });
+      return;
+    }
+    const human = extensionHuman(ctx);
+    for (let editing = false; ; editing = true) {
+      const seed = await collectTaskSeed(app, human, existing, editing ? undefined : keyArg);
+      if (!seed) return;
+      const process = await this.chooseProcess(ctx, store);
+      if (!process) return;
+      human.print([`Источник: ${seed.jira ? seed.jira.url : "без Jira"}`, `Ключ: ${seed.key}`, `Название: ${seed.title}`, `Процесс: ${process}`, "Описание:", seed.description].join("\n"));
+      const action = await human.select("Создать задачу Teo и запустить процесс?", [
+        { label: "Создать и запустить", value: "create" as const },
+        { label: "Изменить", value: "edit" as const },
+        { label: "Отмена", value: "cancel" as const },
+      ]);
+      if (action === "cancel") return;
+      if (action === "edit") continue;
+      const state = await createTask(store, { key: seed.key, title: seed.title, description: seed.description, process });
+      await this.bind(ctx, state.key, { kickoff: true });
+      return;
+    }
   }
 
   /** /teo goal <цель>: режим цели без вопросов — ключ GOAL-N, название из цели (D35). */
@@ -1006,6 +1028,45 @@ export class ExtensionHost {
       return undefined;
     }
   }
+}
+
+function extensionHuman(ctx: ExtensionCommandContext): HumanIO {
+  const required = (value: string | undefined): string => {
+    if (value === undefined) throw new UsageError("Создание задачи отменено.");
+    return value;
+  };
+  return {
+    async select<T>(title: string, choices: ReadonlyArray<Choice<T>>): Promise<T> {
+      const labels = choices.map((choice) => choice.label);
+      const selected = required(await ctx.ui.select(title, labels));
+      const index = labels.indexOf(selected);
+      const choice = choices[index];
+      if (!choice) throw new UsageError("Не выбран вариант.");
+      return choice.value;
+    },
+    async input(label: string, opts: { initial?: string; validate?: Validate } = {}): Promise<string> {
+      for (;;) {
+        const value = required(await ctx.ui.input(label, opts.initial)).trim();
+        const resolved = value || opts.initial || "";
+        const problem = opts.validate?.(resolved) ?? null;
+        if (!problem) return resolved;
+        ctx.ui.notify(problem, "warning");
+      }
+    },
+    async multiline(label: string, opts: { validate?: Validate } = {}): Promise<string> {
+      for (;;) {
+        const value = required(await ctx.ui.editor(label)).trim();
+        const problem = opts.validate?.(value) ?? null;
+        if (!problem) return value;
+        ctx.ui.notify(problem, "warning");
+      }
+    },
+    async confirm(question: string, defaultValue: boolean): Promise<boolean> {
+      return await ctx.ui.confirm(question, defaultValue ? "По умолчанию: да" : "По умолчанию: нет");
+    },
+    print(text: string): void { ctx.ui.notify(text, "info"); },
+    close(): void {},
+  };
 }
 
 function formatWaitRemaining(milliseconds: number): string {

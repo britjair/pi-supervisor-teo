@@ -15,6 +15,7 @@ import type { HumanIO } from "../ui/human-io.js";
 import { GOAL_PROCESS } from "../policy/process-catalog.js";
 import { msg } from "../ui/messages.js";
 import { executeTask } from "./run-task.js";
+import { collectTaskSeed } from "./task-source.js";
 
 export type NewOptions = {
   key?: string;
@@ -155,6 +156,23 @@ export async function newTaskForm(
       "",
     ].join("\n"),
   );
+
+  if (opts.key === undefined && opts.goal === undefined && opts.title === undefined && opts.description === undefined && opts.descriptionFile === undefined) {
+    for (;;) {
+      const seed = await collectTaskSeed(ctx, human, existing);
+      if (!seed) return null;
+      const process = await chooseProcess(human, store, opts);
+      const initial = initialStageLine(store.policyOf(process));
+      human.print(["", `Источник: ${seed.jira ? seed.jira.url : "без Jira"}`, `Ключ: ${seed.key}`, `Название: ${seed.title}`, `Процесс: ${process}`, "Описание:", seed.description, "", initial, ""].join("\n"));
+      const action = await human.select(msg.newTask.summary(seed.key, seed.title), [
+        { label: msg.newTask.create, value: "create" as const },
+        { label: msg.newTask.edit, value: "edit" as const },
+        { label: msg.newTask.cancel, value: "cancel" as const, key: "q" },
+      ]);
+      if (action === "create") return { key: seed.key, title: seed.title, description: seed.description, process };
+      if (action === "cancel") return null;
+    }
+  }
 
   const flagDescription = (await descriptionFromFlags(ctx, opts))?.trim();
   let key = opts.key !== undefined && keyError(opts.key, existing) === null ? opts.key : undefined;
