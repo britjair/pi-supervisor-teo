@@ -243,6 +243,10 @@ export const msg = {
     modelFallback: (role: string, toModel: string, reason: string) => `teo: переключение роли «${role}» на резервную модель ${toModel} (${reason}).`,
     modelsExhaustedWaiting: (key: string, dueAt: string, remaining: string) =>
       `teo: ${key} · ⏳ ⚠ лимит моделей исчерпан · до ${dueAt} · осталось ${remaining}`,
+    humanMessageSavedWaiting: (waitingFor: string, remaining: string) =>
+      `teo: ответ зафиксирован в задаче. Ожидание: ${waitingFor} (осталось ${remaining}). Работа продолжится автоматически.`,
+    humanMessageChatNotice: (text: string, waitingFor: string, remaining: string) =>
+      `[teo] Сообщение пользователя сохранено в задаче:\n\n${text}\n\n⏳ Supervisor ожидает: ${waitingFor} (осталось ${remaining}). Задача продолжится автоматически после завершения ожидания.`,
     agentModelsExhausted: (role: string) => `teo: лимиты всех моделей роли «${role}» исчерпаны. Ход приостановлен.`,
     status: (key: string, stage: string, agent: string, cycle: number) => `teo: ${key} · ${stage} · ${agent} · цикл ${cycle}`,
     statusPaused: (key: string) => `teo: ${key} · пауза`,

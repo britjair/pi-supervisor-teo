@@ -13,6 +13,7 @@ const SAMPLE_MODELS: MinimalModel[] = [
   { provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" },
   { provider: "anthropic", id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
   { provider: "google", id: "gemini-3.1-pro", name: "Gemini 3.1 Pro Preview" },
+  { provider: "antigravity", id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High Thinking)" },
 ];
 
 describe("models-config: парсинг и разрешение", () => {
@@ -98,6 +99,14 @@ profiles:
     expect(matchPiModel("anthropic/claude-sonnet-5-5:low", SAMPLE_MODELS)).toMatchObject({
       model: { id: "claude-sonnet-5-5", provider: "anthropic" },
       thinking: "low",
+    });
+
+    // Сопоставление с нормализацией суффиксов thinking (gemini-3.8-flash -> gemini-3.8-flash-high)
+    expect(matchPiModel("antigravity/gemini-3.8-flash", SAMPLE_MODELS)).toMatchObject({
+      model: { id: "gemini-3.8-flash-high", provider: "antigravity" },
+    });
+    expect(matchPiModel("gemini-3.8-flash", SAMPLE_MODELS)).toMatchObject({
+      model: { id: "gemini-3.8-flash-high", provider: "antigravity" },
     });
 
     // default -> null

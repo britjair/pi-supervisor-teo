@@ -203,4 +203,48 @@ describe("ExtensionHost X4: lifecycle", () => {
       await host.detach();
     }
   });
+
+  it("ввод пользователя в фазе waiting сохраняется, дублируется в чат и перезапускает таймер ожидания", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-02T10:00:00.000Z"));
+    const runtime = new FakeAgentRuntime().script(
+      "sessions/supervisor.jsonl",
+      turn.tool("schedule_recheck", {
+        expectedStateVersion: "$expectedStateVersion",
+        delayMinutes: 5,
+        waitingFor: "сброс квоты или внешняя проверка",
+        message: "Ожидаем",
+      }),
+      turn.tool("schedule_recheck", {
+        expectedStateVersion: "$expectedStateVersion",
+        delayMinutes: 4,
+        waitingFor: "сброс квоты или внешняя проверка",
+        message: "Всё ещё ожидаем",
+      }),
+    );
+    const policy = DED.replace("      agent: explorer\n", "      agent: explorer\n      recheck: {}\n");
+    const { sb, pi, host, ctx } = await setup(policy, runtime);
+    try {
+      await pi.emit("agent_before_settle", settleEvent([assistant("Ход завершён")]), ctx);
+      expect(await state(sb)).toMatchObject({ phase: "waiting" });
+
+      const inputRes = await pi.emit("input", { type: "input", text: "Ответ пользователя на вопросы" }, ctx);
+      expect(inputRes).toEqual({ action: "handled" });
+
+      const journal = await events(sb);
+      const responded = journal.find((e) => e.type === "human.responded");
+      expect(responded).toBeDefined();
+      expect(responded?.payload).toMatchObject({ answer: "Ответ пользователя на вопросы" });
+
+      const sentNotice = pi.sent.find((s) => (s.message as { customType?: string }).customType === "teo-waiting");
+      expect(sentNotice).toBeDefined();
+      expect(sentNotice?.message.content).toContain("Ответ пользователя на вопросы");
+      expect(sentNotice?.message.content).toContain("сброс квоты или внешняя проверка");
+
+      expect(ctx.fakeUi.notes.some((n) => n.message.includes("ответ зафиксирован в задаче"))).toBe(true);
+      expect(ctx.fakeUi.status.get("teo")).toContain("⏳ ожидание до");
+    } finally {
+      await host.detach();
+    }
+  });
 });

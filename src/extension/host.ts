@@ -2,6 +2,7 @@
 // X2: binding, роль/tools/model, lock, журнал чата. X3: logical agent runs и supervisor.
 // X4: userSession:new, recheck-таймеры, pause/resume и recovery оборванных фаз.
 
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import type {
   AgentBeforeSettleEvent,
@@ -327,7 +328,7 @@ export class ExtensionHost {
       .filter((e): e is typeof e & { type: "custom"; customType: string; data?: unknown } => e.type === "custom" && "customType" in e && e.customType === BINDING_ENTRY)
       .at(-1);
     const data = entry?.data as BindingEntry | undefined;
-    if (!data?.key || path.resolve(data.projectRoot) !== path.resolve(ctx.cwd)) return;
+    if (!data?.key || !samePath(data.projectRoot, ctx.cwd)) return;
     try {
       const b = await this.bind(ctx, data.key, { kickoff: false, auto: true });
       if (b) await this.resumeBoundWorkflow(b, ctx, true);
@@ -410,6 +411,20 @@ export class ExtensionHost {
       this.clearWaitTimer(b);
       await b.workflow.waitingHumanMessage(text);
       await this.resumeBoundWorkflow(b, ctx, true);
+      const after = await b.store.tasks.load(b.key);
+      if (after.phase === "waiting" && after.wait) {
+        await this.scheduleWaitTimer(b, ctx);
+        const remaining = formatWaitRemaining(new Date(after.wait.dueAt).getTime() - b.app.clock.now().getTime());
+        ctx.ui.notify(msg.extension.humanMessageSavedWaiting(after.wait.waitingFor, remaining), "info");
+        this.pi.sendMessage(
+          {
+            customType: "teo-waiting",
+            content: msg.extension.humanMessageChatNotice(text, after.wait.waitingFor, remaining),
+            display: true,
+          },
+          { triggerTurn: false },
+        );
+      }
       return { action: "handled" };
     }
     await b.store.tasks.commit(b.key, (s, c) => {
@@ -713,6 +728,7 @@ export class ExtensionHost {
     const decision = result.decision;
     if (!decision) {
       if (isHalted(result.state)) await this.finishResult(b, ctx, result.state);
+      else if (result.state.phase === "waiting") await this.scheduleWaitTimer(b, ctx);
       else await this.refreshStatus(b, ctx);
       return;
     }
@@ -1067,6 +1083,14 @@ function extensionHuman(ctx: ExtensionCommandContext): HumanIO {
     print(text: string): void { ctx.ui.notify(text, "info"); },
     close(): void {},
   };
+}
+
+function samePath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return path.resolve(a) === path.resolve(b);
+  }
 }
 
 function formatWaitRemaining(milliseconds: number): string {

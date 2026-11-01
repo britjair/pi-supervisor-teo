@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach } from "vitest";
@@ -9,7 +9,7 @@ const created: string[] = [];
 
 /** Временный каталог, удаляется после теста. */
 export async function tmpDir(prefix = "teo-test-"): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
+  const dir = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
   created.push(dir);
   return dir;
 }
