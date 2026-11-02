@@ -793,7 +793,13 @@ export class ExtensionHost {
         if (this.binding !== b) return;
         const remaining = formatWaitRemaining(new Date(dueAt).getTime() - b.app.clock.now().getTime());
         if (state.wait?.targetPhase === "supervisor_pending") {
-          ctx.ui.setStatus("teo", msg.extension.modelsExhaustedWaiting(b.key, dueAt, remaining));
+          // Если провайдер срок не назвал, dueAt — всего лишь момент следующей пробы.
+          ctx.ui.setStatus(
+            "teo",
+            state.wait.resetKnown
+              ? msg.extension.modelsExhaustedWaiting(b.key, dueAt, remaining)
+              : msg.extension.modelsExhaustedProbe(b.key, remaining),
+          );
         } else {
           ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, dueAt, remaining));
         }

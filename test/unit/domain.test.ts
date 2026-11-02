@@ -80,6 +80,7 @@ const wait = {
   scheduledAt: NOW.toISOString(),
   dueAt: "2026-10-25T10:30:00.000Z",
   targetPhase: null,
+  resetKnown: true,
 };
 
 describe("инварианты state", () => {

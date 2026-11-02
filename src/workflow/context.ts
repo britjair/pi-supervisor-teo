@@ -23,6 +23,12 @@ export type EngineOptions = {
   checkNow: boolean;
 };
 
+/**
+ * Точный срок сброса лимита провайдера, если его можно узнать помимо текста ошибки.
+ * null — неизвестно, тогда работает график проб (docs/08-model-profiles.md §5).
+ */
+export type ProviderResetProbe = (provider: string, now: number) => Promise<{ ms: number; detail: string } | null>;
+
 /** Состояние текущего цикла supervisor-а в памяти процесса (03-engine.md §5.3, §5.5). */
 export type CycleMemory = {
   cycle: number;
@@ -52,6 +58,8 @@ export interface EngineCore {
   readonly exec: Exec;
   readonly options: EngineOptions;
   readonly style: Style;
+  /** Проба точного срока сброса лимита; null — недоступна (тесты, оффлайн) */
+  readonly providerReset: ProviderResetProbe | null;
   /** Ctrl+C, SIGTERM, потеря lock-а */
   readonly signal: AbortSignal;
   /** Текущая Policy: обновляется policy gate */

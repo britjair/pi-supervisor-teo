@@ -94,6 +94,8 @@ export type WaitState = {
   scheduledAt: string;
   dueAt: string;
   targetPhase: "agent_pending" | "supervisor_pending" | null;
+  /** Ожидание лимита: dueAt — названный провайдером срок сброса, а не следующая проба */
+  resetKnown: boolean;
 };
 
 export type HumanRequest = {

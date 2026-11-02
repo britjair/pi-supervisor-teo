@@ -21,7 +21,8 @@ import { noFaults } from "../util/fault.js";
 import { resolveWithin } from "../util/paths.js";
 import { redact } from "../util/redact.js";
 import { settleRun } from "../workflow/agent-step.js";
-import type { CycleMemory, EngineCore } from "../workflow/context.js";
+import type { CycleMemory, EngineCore, ProviderResetProbe } from "../workflow/context.js";
+import { codexResetProbe } from "../util/codex-usage.js";
 import { applyDecision } from "../workflow/decision-executor.js";
 import { silentReporter } from "../workflow/reporter.js";
 import { awaitSupervisor, startSupervisor } from "../workflow/supervisor-step.js";
@@ -54,6 +55,7 @@ class ExtensionCore implements EngineCore {
   readonly reporter = silentReporter;
   readonly faults = noFaults;
   readonly options = { noWait: true, checkNow: false };
+  readonly providerReset: ProviderResetProbe;
   readonly reported = new Set<string>();
   cycle: CycleMemory | null = null;
 
@@ -67,8 +69,10 @@ class ExtensionCore implements EngineCore {
     readonly style: AppContext["style"],
     readonly signal: AbortSignal,
     public policy: LoadedPolicy,
+    homeDir: string,
   ) {
     this.pool = new SessionPool(runtime, () => undefined);
+    this.providerReset = codexResetProbe(homeDir);
   }
 
   task(): TaskLayout {
@@ -130,6 +134,7 @@ export class ExtensionWorkflow {
       opts.app.style,
       opts.lock.signal,
       opts.policy,
+      opts.app.homeDir,
     );
   }
 

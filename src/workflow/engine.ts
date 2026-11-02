@@ -19,7 +19,7 @@ import type { Exec } from "../util/exec.js";
 import { noFaults, type FaultInjector } from "../util/fault.js";
 import type { IdGenerator } from "../util/ids.js";
 import { awaitAgent, startAgent } from "./agent-step.js";
-import type { CycleMemory, EngineCore, EngineOptions } from "./context.js";
+import type { CycleMemory, EngineCore, EngineOptions, ProviderResetProbe } from "./context.js";
 import { applyDecision } from "./decision-executor.js";
 import { askHumanStep } from "./human-step.js";
 import { InterruptRequest, type ExitOutcome } from "./outcome.js";
@@ -43,6 +43,8 @@ export type EngineDeps = {
   style: Style;
   faults?: FaultInjector;
   options?: Partial<EngineOptions>;
+  /** Точный срок сброса лимита провайдера; в тестах не задаётся (без сети) */
+  providerReset?: ProviderResetProbe;
   /** Сигнал lock-а: его потеря останавливает движок без записи */
   lockSignal?: AbortSignal;
   waitControl?: WaitControl;
@@ -81,6 +83,7 @@ export class Engine implements EngineCore {
   readonly exec: Exec;
   readonly style: Style;
   readonly options: EngineOptions;
+  readonly providerReset: ProviderResetProbe | null;
   readonly signal: AbortSignal;
   readonly reported = new Set<string>();
   policy: LoadedPolicy;
@@ -103,6 +106,7 @@ export class Engine implements EngineCore {
     this.style = deps.style;
     this.policy = deps.policy;
     this.options = { noWait: deps.options?.noWait ?? false, checkNow: deps.options?.checkNow ?? false };
+    this.providerReset = deps.providerReset ?? null;
     this.checkNowPending = this.options.checkNow;
     this.signal = deps.lockSignal ? AbortSignal.any([this.controller.signal, deps.lockSignal]) : this.controller.signal;
     this.sleeper = deps.sleep ?? realSleep;

@@ -9,7 +9,13 @@ import { getStage } from "../domain/policy.js";
 import { haltedState, type TaskState } from "../domain/task-state.js";
 import { argsPreview } from "../util/redact.js";
 import { resolveModelChain } from "../policy/models-config.js";
-import { defaultCooldownTracker, isModelExhaustedError, parseResetCooldownMs } from "../util/model-exhaustion.js";
+import {
+  defaultCooldownTracker,
+  exhaustionScope,
+  isModelExhaustedError,
+  parseResetCooldownMs,
+  PROBE_SCHEDULE_MS,
+} from "../util/model-exhaustion.js";
 import type { EngineCore } from "./context.js";
 import type { ExitOutcome } from "./outcome.js";
 import { InterruptRequest } from "./outcome.js";
@@ -64,14 +70,44 @@ async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise
   }
 
   if (hasExhausted) {
-    const earliest = defaultCooldownTracker.getEarliestResetMs(checkedModels, now) ?? 30 * 60 * 1000;
+    const earliest = defaultCooldownTracker.getEarliestResetMs(checkedModels, now) ?? PROBE_SCHEDULE_MS[0] ?? 0;
     return { kind: "exhausted", earliestResetMs: earliest };
   }
   return { kind: "unavailable", error: lastError };
 }
 
-async function scheduleSupervisorExhaustionWait(core: EngineCore, state: TaskState, dueAt: string, delayMs: number): Promise<void> {
+/**
+ * Срок cooldown: сначала точная проба провайдера, затем текст ошибки, иначе null —
+ * и тогда трекер берёт следующий шаг графика проб.
+ */
+async function resolveCooldownMs(core: EngineCore, provider: string, message: string): Promise<{ ms: number | null; detail: string | null }> {
+  const now = core.clock.now().getTime();
+  const probed = await core.providerReset?.(provider, now).catch(() => null);
+  if (probed && probed.ms > 0) return { ms: probed.ms, detail: probed.detail };
+  const parsed = parseResetCooldownMs(message, now);
+  return { ms: parsed, detail: parsed === null ? null : "срок из ответа провайдера" };
+}
+
+const supervisorSessionFile = (core: EngineCore) => path.join(core.task().dir, "sessions", "supervisor.jsonl");
+
+/**
+ * Ожидание сброса лимита. `detail` — откуда взят срок (окно провайдера, ответ провайдера)
+ * или null, когда срок неизвестен и дата — всего лишь следующая проба: врать про отсчёт нельзя.
+ */
+async function scheduleSupervisorExhaustionWait(
+  core: EngineCore,
+  state: TaskState,
+  dueAt: string,
+  delayMs: number,
+  info: { what?: string; detail?: string | null } = {},
+): Promise<void> {
   const delayMinutes = Math.max(1, Math.ceil(delayMs / 60_000));
+  const resetKnown = info.detail !== null && info.detail !== undefined;
+  const what = info.what ?? "модели supervisor-а";
+  const waitingFor = `сброс лимита ${what}`;
+  const message = info.detail
+    ? `Лимит ${what} исчерпан (${info.detail}). Ожидание сброса лимита.`
+    : `Лимит ${what} исчерпан. Срок сброса провайдером не сообщён, следующая проверка по графику проб.`;
   await core.store.tasks.commit(
     core.key,
     (s, c) => {
@@ -80,9 +116,10 @@ async function scheduleSupervisorExhaustionWait(core: EngineCore, state: TaskSta
         decisionId,
         number: 1,
         maxCount: 999,
-        waitingFor: "сброс лимита модели supervisor-а",
+        waitingFor,
         delayMinutes,
         dueAt,
+        resetKnown,
       });
       return {
         ...s,
@@ -91,12 +128,13 @@ async function scheduleSupervisorExhaustionWait(core: EngineCore, state: TaskSta
         wait: {
           decisionId,
           number: 1,
-          waitingFor: "сброс лимита модели supervisor-а",
-          message: "Лимит модели supervisor-а исчерпан. Ожидание сброса лимита.",
+          waitingFor,
+          message,
           delayMinutes,
           scheduledAt: c.now,
           dueAt,
           targetPhase: "supervisor_pending",
+          resetKnown,
         },
       };
     },
@@ -269,6 +307,11 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
   if (outcome.kind === "aborted" && !active.timedOut && core.signal.aborted) {
     throw core.signal.reason instanceof Error ? core.signal.reason : new InterruptRequest("SIGINT");
   }
+  // Модель ответила — снимаем cooldown и сбрасываем график проб.
+  if (outcome.kind === "completed" || outcome.kind === "terminated_by_tool") {
+    const [p, m] = (core.pool.openedModel(supervisorSessionFile(core)) ?? mem.modelUsed ?? "").split("/");
+    if (p && m) defaultCooldownTracker.recordSuccess(p, m, core.clock.now().getTime());
+  }
   const after = await core.store.tasks.load(core.key);
   if (mem.decisionRecorded || after.phase !== "supervisor_running") {
     core.cycle = null;
@@ -284,14 +327,21 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
   };
   if (outcome.kind === "error") {
     if (isModelExhaustedError(outcome.message)) {
-      const [provider = "unknown", modelId = "unknown"] = (mem.modelUsed ?? "").split("/");
-      const cooldownMs = parseResetCooldownMs(outcome.message) ?? 30 * 60 * 1000;
-      const record = defaultCooldownTracker.recordExhausted(provider, modelId, cooldownMs, outcome.message, core.clock.now().getTime());
+      // Что реально ответило ошибкой — модель открытой сессии, а не то, что мы собирались использовать.
+      const ranWith = core.pool.openedModel(supervisorSessionFile(core)) ?? mem.modelUsed ?? "";
+      const [provider = "unknown", modelId = "unknown"] = ranWith.split("/");
+      const scope = exhaustionScope(outcome.message);
+      const { ms, detail } = await resolveCooldownMs(core, provider, outcome.message);
+      const record = defaultCooldownTracker.recordExhausted(provider, modelId, ms, outcome.message, core.clock.now().getTime(), { scope });
       const resetAt = new Date(record.exhaustedUntil).toISOString();
       await core.store.tasks.appendDirect(core.key, "model.exhausted", "cli", {
         provider,
         modelId,
+        scope,
         resetAt,
+        resetKnown: ms !== null,
+        ...(detail ? { resetDetail: detail } : {}),
+        attempt: record.attempt,
         reason: outcome.message,
       });
 
@@ -300,21 +350,28 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
       const fallbackSelection = await selectSupervisorModel(core, remainingChain);
       if (fallbackSelection.kind === "selected") {
         const nextModel = fallbackSelection.model;
+        const spec = supervisorSessionSpec(core, nextModel);
+        // Сессия кешируется по файлу: без переоткрытия запрос ушёл бы в прежнюю исчерпанную модель.
+        const handle = await core.pool.reopen(spec);
+        const applied = core.pool.openedModel(spec.file) === nextModel.id;
         await core.store.tasks.appendDirect(core.key, "model.fallback", "cli", {
           role: "supervisor",
-          fromModel: mem.modelUsed ?? "unknown",
+          fromModel: ranWith || "unknown",
           toModel: nextModel.id,
+          applied,
           reason: outcome.message,
         });
+        if (!applied) {
+          core.cycle = null;
+          return block(core, after, "MODEL_SWITCH_FAILED", `не удалось переключить supervisor на резервную модель ${nextModel.id}`);
+        }
         core.reporter.emit({
           type: "info",
-          text: `Переключение supervisor-а на резервную модель ${nextModel.id} (лимит ${mem.modelUsed} исчерпан)`,
+          text: `Переключение supervisor-а на резервную модель ${nextModel.id} (лимит ${ranWith} исчерпан)`,
         });
         mem.modelUsed = nextModel.id;
         mem.modelChainIndex = (mem.modelChainIndex ?? 0) + 1 + fallbackSelection.index;
         mem.technicalRetriesUsed = 0;
-        const spec = supervisorSessionSpec(core, nextModel);
-        const handle = await core.pool.open(spec);
         const events = await core.events();
         const stage = getStage(core.policy.spec, after.stage);
         if (!stage || stage.kind !== "work") throw new Error("нет рабочего этапа для supervisor prompt");
@@ -343,7 +400,11 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
       }
 
       core.cycle = null;
-      await scheduleSupervisorExhaustionWait(core, after, resetAt, cooldownMs);
+      const waitMs = Math.max(0, record.exhaustedUntil - core.clock.now().getTime());
+      await scheduleSupervisorExhaustionWait(core, after, resetAt, waitMs, {
+        what: scope === "provider" ? `провайдера ${provider}` : `модели ${ranWith || provider}`,
+        detail,
+      });
       return { kind: "waiting_recheck", dueAt: resetAt };
     }
 

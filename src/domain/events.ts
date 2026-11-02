@@ -62,6 +62,8 @@ export type EventPayloads = {
     waitingFor: string;
     delayMinutes: number;
     dueAt: string;
+    /** Ожидание лимита: срок назван провайдером или это всего лишь следующая проба */
+    resetKnown?: boolean;
   };
   "wait.finished": {
     decisionId: string;
@@ -71,8 +73,21 @@ export type EventPayloads = {
   };
   "runtime.interrupted": { signal: string | null; phase: Phase; runId: string | null };
   "runtime.recovered": { phase: Phase; action: string; details: Record<string, unknown> };
-  "model.exhausted": { provider: string; modelId: string; resetAt: string; reason: string };
-  "model.fallback": { role: string; fromModel: string; toModel: string; reason: string };
+  "model.exhausted": {
+    provider: string;
+    modelId: string;
+    resetAt: string;
+    reason: string;
+    /** Лимит на аккаунт провайдера или только на модель */
+    scope?: "provider" | "model";
+    /** Срок сброса известен, а не взят из графика проб */
+    resetKnown?: boolean;
+    resetDetail?: string;
+    /** Номер попытки в графике проб */
+    attempt?: number;
+  };
+  /** `applied: false` — переключение не состоялось, запрос ушёл бы в старую модель */
+  "model.fallback": { role: string; fromModel: string; toModel: string; reason: string; applied?: boolean };
 };
 
 export type EventType = keyof EventPayloads;

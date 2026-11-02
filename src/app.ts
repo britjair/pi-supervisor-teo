@@ -15,6 +15,8 @@ import { execFileNoThrow, type Exec } from "./util/exec.js";
 import { faultsFromEnv, type FaultInjector } from "./util/fault.js";
 import { DebugLog } from "./util/debug-log.js";
 import { createIdGenerator, type IdGenerator } from "./util/ids.js";
+import { cooldownFilePath, FileCooldownStore } from "./util/model-cooldown-store.js";
+import { defaultCooldownTracker } from "./util/model-exhaustion.js";
 
 export type Output = { write(chunk: string): unknown; isTTY?: boolean };
 
@@ -71,6 +73,8 @@ export function createAppContext(o: AppOptions): AppContext {
   const interactive = o.stdin.isTTY === true && o.stdout.isTTY === true;
   const clock = systemClock;
   const debugLog = new DebugLog(() => clock.now());
+  // cooldown-ы лимитов переживают перезапуск: файл глобальный, так как лимит у аккаунта, а не у репозитория
+  defaultCooldownTracker.bindPersistence(new FileCooldownStore(cooldownFilePath(homeDir)));
   return {
     cwd: o.cwd ?? process.cwd(),
     homeDir,

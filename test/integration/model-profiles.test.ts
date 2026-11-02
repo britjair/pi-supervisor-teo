@@ -91,7 +91,73 @@ roles:
         role: "supervisor",
         fromModel: "openai-codex/gpt-5.5",
         toModel: "anthropic/claude-opus-5-5",
+        applied: true,
       });
+
+      // Главное: запрос действительно ушёл в резервную модель, а не в прежнюю сессию.
+      // Сессия кешируется по пути файла, поэтому без переоткрытия модель осталась бы старой.
+      const supervisorOpens = runtime.opened.filter((s) => s.file.endsWith("sessions/supervisor.jsonl"));
+      expect(supervisorOpens.map((s) => s.model.id)).toEqual(["openai-codex/gpt-5.5", "anthropic/claude-opus-5-5"]);
+    } finally {
+      await host.detach();
+    }
+  });
+
+  it("цепочка не помечает исчерпанными модели, которых не спрашивали", async () => {
+    const sb = await sandbox(DED, { process: "dev" });
+    const modelsMd = `---
+schema: teo/v1
+roles:
+  supervisor:
+    - openai-codex/gpt-5.6-sol
+    - claude-bridge/claude-opus-5-5
+    - antigravity/gemini-3.8-flash
+---
+`;
+    await writeFile(path.join(sb.home, ".pi", "teo", "models.md"), modelsMd);
+
+    const runtime = new FakeAgentRuntime().script(
+      "sessions/supervisor.jsonl",
+      // Лимит аккаунта Codex: это весь провайдер, а не одна модель
+      turn.error("Codex error: The usage limit has been reached"),
+      // Вторая модель цепочки отвечает нормально
+      turn.tool("transition_stage", {
+        expectedStateVersion: "$expectedStateVersion",
+        to: "execute",
+        reason: "проверено резервной моделью",
+        evidenceRefs: ["artifact:plan.md"],
+      }),
+    );
+
+    const pi = new FakePi();
+    const host = new ExtensionHost(pi.api, sb.home, () => runtime);
+    host.register();
+    const ctx = fakeCtx(pi, { cwd: sb.project, ui: { answers: ["dev", "Описание", "Задача"] } });
+
+    await host.start(ctx, "T-1");
+    await pi.emit("before_agent_start", agentStartEvent("Начни"), ctx);
+
+    try {
+      await writeFile(path.join(taskDir(sb), "artifacts", "plan.md"), "План\n");
+      await pi.callTool("report_result", { summary: "План готов", evidence: [{ kind: "artifact", value: "plan.md" }] });
+      await pi.emit("agent_before_settle", settleEvent([assistant("План готов")]), ctx);
+
+      // Исчерпан ровно один провайдер — тот, что реально ответил ошибкой
+      const journal = await events(sb);
+      const exhausted = journal.filter((e) => e.type === "model.exhausted");
+      expect(exhausted).toHaveLength(1);
+      expect(exhausted[0]?.payload).toMatchObject({ provider: "openai-codex", scope: "provider" });
+
+      // Лимит аккаунта накрывает все модели провайдера, но не чужие
+      expect(defaultCooldownTracker.isExhausted("openai-codex", "gpt-5.6-sol")).toBe(true);
+      expect(defaultCooldownTracker.isExhausted("openai-codex", "gpt-5.6-luna")).toBe(true);
+      expect(defaultCooldownTracker.isExhausted("claude-bridge", "claude-opus-5-5")).toBe(false);
+      expect(defaultCooldownTracker.isExhausted("antigravity", "gemini-3.8-flash")).toBe(false);
+
+      // Третью модель не трогали: до неё не дошло
+      const openedIds = runtime.opened.filter((s) => s.file.endsWith("sessions/supervisor.jsonl")).map((s) => s.model.id);
+      expect(openedIds).toEqual(["openai-codex/gpt-5.6-sol", "claude-bridge/claude-opus-5-5"]);
+      expect((await state(sb)).stage).toBe("execute");
     } finally {
       await host.detach();
     }
@@ -160,6 +226,58 @@ roles:
       expect(afterWaitState.phase).toBe("agent_pending");
       await pi.emit("before_agent_start", agentStartEvent("Выполняю"), ctx);
       expect((await state(sb)).phase).toBe("agent_running");
+    } finally {
+      await host.detach();
+    }
+  });
+
+  it("без срока от провайдера статус говорит о пробе, а не о выдуманном сроке сброса", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T12:00:00.000Z"));
+
+    const sb = await sandbox(DED, { process: "dev" });
+    await writeFile(
+      path.join(sb.home, ".pi", "teo", "models.md"),
+      `---
+schema: teo/v1
+roles:
+  supervisor:
+    - openai-codex/gpt-5.6-sol
+---
+`,
+    );
+
+    const runtime = new FakeAgentRuntime().script(
+      "sessions/supervisor.jsonl",
+      // Сообщение Codex о лимите срока сброса не содержит
+      turn.error("Codex error: The usage limit has been reached"),
+    );
+
+    const pi = new FakePi();
+    const host = new ExtensionHost(pi.api, sb.home, () => runtime);
+    host.register();
+    const ctx = fakeCtx(pi, { cwd: sb.project, ui: { answers: ["dev", "Описание", "Задача"] } });
+
+    await host.start(ctx, "T-1");
+    await pi.emit("before_agent_start", agentStartEvent("Начни"), ctx);
+
+    try {
+      await writeFile(path.join(taskDir(sb), "artifacts", "plan.md"), "План\n");
+      await pi.callTool("report_result", { summary: "План готов", evidence: [{ kind: "artifact", value: "plan.md" }] });
+      await pi.emit("agent_before_settle", settleEvent([assistant("План готов")]), ctx);
+
+      const waiting = await state(sb);
+      expect(waiting.phase).toBe("waiting");
+      expect(waiting.wait?.resetKnown).toBe(false);
+      // Первый шаг графика проб — 15 минут, а не прежние жёсткие 30
+      expect(waiting.wait?.delayMinutes).toBe(15);
+      expect(waiting.wait?.waitingFor).toContain("openai-codex");
+      expect(waiting.wait?.message).toContain("не сообщён");
+
+      const status = ctx.fakeUi.status.get("teo") ?? "";
+      expect(status).toContain("срок сброса не сообщён");
+      expect(status).toContain("проба через");
+      expect(status).not.toContain("до 2026-");
     } finally {
       await host.detach();
     }
