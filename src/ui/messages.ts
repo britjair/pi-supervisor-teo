@@ -203,7 +203,7 @@ export const msg = {
     description: "Pi Supervisor TEO: задачи по процессам ~/.pi/teo с проверкой supervisor-а",
     help: [
       "Pi Supervisor TEO",
-      "  /teo start [KEY]     новая задача в этой сессии: процесс, описание, роль первого этапа",
+      "  /teo start [JIRA]    новая задача: существующая Jira, создание Jira или локальный ключ",
       "  /teo goal <цель>     задача-цель без процесса (ключ GOAL-N)",
       "  /teo sessions        просмотр всех сессий с номерами и выбор для возобновления",
       "  /teo resume [KEY/№]  продолжить задачу (по номеру, ключу или из списка)",
@@ -243,6 +243,10 @@ export const msg = {
     modelFallback: (role: string, toModel: string, reason: string) => `teo: переключение роли «${role}» на резервную модель ${toModel} (${reason}).`,
     modelsExhaustedWaiting: (key: string, dueAt: string, remaining: string) =>
       `teo: ${key} · ⏳ ⚠ лимит моделей исчерпан · до ${dueAt} · осталось ${remaining}`,
+    humanMessageSavedWaiting: (waitingFor: string, remaining: string) =>
+      `teo: ответ зафиксирован в задаче. Ожидание: ${waitingFor} (осталось ${remaining}). Работа продолжится автоматически.`,
+    humanMessageChatNotice: (text: string, waitingFor: string, remaining: string) =>
+      `[teo] Сообщение пользователя сохранено в задаче:\n\n${text}\n\n⏳ Supervisor ожидает: ${waitingFor} (осталось ${remaining}). Задача продолжится автоматически после завершения ожидания.`,
     agentModelsExhausted: (role: string) => `teo: лимиты всех моделей роли «${role}» исчерпаны. Ход приостановлен.`,
     status: (key: string, stage: string, agent: string, cycle: number) => `teo: ${key} · ${stage} · ${agent} · цикл ${cycle}`,
     statusPaused: (key: string) => `teo: ${key} · пауза`,
@@ -290,14 +294,14 @@ export const msg = {
     plain: "линейный вывод даже в терминале",
     verbose: "debug-лог в stderr",
     json: "вывод в JSON",
-    cmdNew: "создать задачу и запустить workflow",
+    cmdNew: "создать задачу из Jira или первичного описания и запустить workflow",
     cmdResume: "продолжить задачу с сохранённой фазы",
     cmdStatus: "состояние задачи или сводка по всем задачам",
     cmdHistory: "задачи проекта или журнал событий задачи",
     cmdCancel: "отменить задачу",
     cmdRecover: "ручное восстановление задачи",
     cmdDoctor: "диагностика окружения, Policy и хранилища",
-    argKey: "ключ задачи",
+    argKey: "явный ключ задачи; в /teo start также Jira key или URL",
     optTitle: "название задачи",
     optDescriptionFile: "файл с описанием задачи",
     optDescription: "описание задачи; «-» — прочитать из stdin",
@@ -367,7 +371,8 @@ export const msg = {
     },
     nonInteractiveHint: [
       "Команды:",
-      "  teo new KEY --title T --description-file F   создать задачу",
+      "  teo new                                      создать задачу через Jira-aware диалог",
+      "  teo new KEY --title T --description-file F   создать задачу явно (для скриптов)",
       "  teo new KEY --goal \"цель\"                    задача-цель без процесса",
       "  teo status [KEY]                             состояние",
       "  teo history [KEY]                            задачи и журнал событий",

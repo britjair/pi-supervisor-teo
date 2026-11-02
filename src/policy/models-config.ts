@@ -107,12 +107,16 @@ export type MinimalModel = {
   name: string;
 };
 
+const MODEL_VARIANT_SUFFIX_RE = /-(high|medium|low|extra-low|tiered)$/i;
+const stripThinkingSuffix = (s: string) => s.replace(MODEL_VARIANT_SUFFIX_RE, "");
+
 /**
  * Сопоставить имя модели из конфига с моделью из каталога Pi:
  * 1. Точное provider/id
  * 2. Точное id (без учёта регистра)
  * 3. Точное name (без учёта регистра)
- * 4. Нормализованное токен-сопоставление (учитывает порядок слов вроде "Gemini Pro 3.1" vs "Gemini 3.1 Pro" и опечатки вроде GTP/GPT)
+ * 4. Сопоставление с нормализацией суффиксов thinking (-high, -medium, -low и т.д.)
+ * 5. Нормализованное токен-сопоставление (учитывает порядок слов вроде "Gemini Pro 3.1" vs "Gemini 3.1 Pro" и опечатки вроде GTP/GPT)
  */
 export function matchPiModel<T extends MinimalModel>(
   entry: string,
@@ -150,7 +154,17 @@ export function matchPiModel<T extends MinimalModel>(
   const bestName = filterMatches(exactName);
   if (bestName) return { model: bestName, thinking };
 
-  // 4. token-based match
+  // 4. provider/id and id with thinking suffix stripped
+  const baseQ = stripThinkingSuffix(qFixed);
+  const suffixFull = availableModels.filter((m) => `${m.provider}/${stripThinkingSuffix(m.id)}`.toLowerCase() === baseQ);
+  const bestSuffixFull = filterMatches(suffixFull);
+  if (bestSuffixFull) return { model: bestSuffixFull, thinking };
+
+  const suffixId = availableModels.filter((m) => stripThinkingSuffix(m.id).toLowerCase() === baseQ);
+  const bestSuffixId = filterMatches(suffixId);
+  if (bestSuffixId) return { model: bestSuffixId, thinking };
+
+  // 5. token-based match
   const tokens = qFixed.split(/[\s/._:-]+/).filter(Boolean);
   if (tokens.length > 0) {
     const matched = availableModels.filter((m) => {

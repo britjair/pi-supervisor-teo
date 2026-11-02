@@ -2,6 +2,7 @@
 // X2: binding, роль/tools/model, lock, журнал чата. X3: logical agent runs и supervisor.
 // X4: userSession:new, recheck-таймеры, pause/resume и recovery оборванных фаз.
 
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import type {
   AgentBeforeSettleEvent,
@@ -24,7 +25,8 @@ import { agentBuiltinTools } from "../agents/session-spec.js";
 import { reportBlockerSchema, reportResultSchema } from "../agents/tools/child-tools.js";
 import type { AppContext } from "../app.js";
 import { startCommand } from "../app.js";
-import { goalTitle, createTask, keyError, titleError } from "../commands/new.js";
+import { createTask, goalTitle, keyError, titleError } from "../commands/new.js";
+import { collectTaskSeed } from "../commands/task-source.js";
 import { getAgent, getStage, parseModelRef, type AgentDef, type LoadedPolicy, type WorkStage } from "../domain/policy.js";
 import type { ReportBlockerInput, ReportResultInput } from "../domain/runs.js";
 import { isFinished, isHalted, type HumanRequest, type TaskState } from "../domain/task-state.js";
@@ -35,6 +37,8 @@ import { defaultCooldownTracker } from "../util/model-exhaustion.js";
 import { collectSessionItems } from "../commands/sessions.js";
 import type { HeldLock } from "../state/lock-manager.js";
 import type { ProjectStore } from "../state/project-store.js";
+import { loadJiraConfig } from "../integrations/jira.js";
+import type { Choice, HumanIO, Validate } from "../ui/human-io.js";
 import { msg } from "../ui/messages.js";
 import { readTaskDescription } from "../workflow/agent-step.js";
 import { errorText, extensionAppContext } from "./run-command.js";
@@ -112,28 +116,47 @@ export class ExtensionHost {
 
   // ---------- команды ----------
 
-  /** /teo start [KEY]: новая задача через диалоги Pi, затем привязка и старт роли этапа. */
+  /** /teo start [JIRA-KEY/URL]: Jira-aware создание задачи, затем привязка и старт роли этапа. */
   async start(ctx: ExtensionCommandContext, keyArg: string | undefined): Promise<void> {
     this.assertFree();
     const { ctx: app } = extensionAppContext(ctx.cwd, this.homeDir);
     const { store } = await startCommand(app);
     const existing = await store.tasks.listKeys();
-    const process = await this.chooseProcess(ctx, store);
-    if (!process) return;
-    const isGoal = process === GOAL_PROCESS;
-    const key = keyArg ?? (await ctx.ui.input(msg.extension.askKey, "PAY-142"))?.trim();
-    if (!key) return;
-    const keyProblem = keyError(key, existing);
-    if (keyProblem) throw new UsageError(keyProblem);
-    const description = (await ctx.ui.editor(isGoal ? msg.newTask.goal : msg.newTask.description))?.trim();
-    if (!description) return;
-    const titleAnswer = await ctx.ui.input(msg.newTask.taskTitle, isGoal ? goalTitle(description) : "");
-    if (titleAnswer === undefined) return;
-    const title = titleAnswer.trim() || (isGoal ? goalTitle(description) : "");
-    const titleProblem = titleError(title);
-    if (titleProblem) throw new UsageError(titleProblem);
-    const state = await createTask(store, { key, title, description, process });
-    await this.bind(ctx, state.key, { kickoff: true });
+    const configuredJira = await loadJiraConfig(app.homeDir, app.env);
+    if (keyArg && (!configuredJira.baseUrl || !configuredJira.token)) {
+      const process = await this.chooseProcess(ctx, store);
+      if (!process) return;
+      const problem = keyError(keyArg, existing);
+      if (problem) throw new UsageError(problem);
+      const description = (await ctx.ui.editor(process === GOAL_PROCESS ? msg.newTask.goal : msg.newTask.description))?.trim();
+      if (!description) return;
+      const answer = await ctx.ui.input(msg.newTask.taskTitle, process === GOAL_PROCESS ? goalTitle(description) : "");
+      if (answer === undefined) return;
+      const title = answer.trim() || (process === GOAL_PROCESS ? goalTitle(description) : "");
+      const titleProblem = titleError(title);
+      if (titleProblem) throw new UsageError(titleProblem);
+      const state = await createTask(store, { key: keyArg, title, description, process });
+      await this.bind(ctx, state.key, { kickoff: true });
+      return;
+    }
+    const human = extensionHuman(ctx);
+    for (let editing = false; ; editing = true) {
+      const seed = await collectTaskSeed(app, human, existing, editing ? undefined : keyArg);
+      if (!seed) return;
+      const process = await this.chooseProcess(ctx, store);
+      if (!process) return;
+      human.print([`Источник: ${seed.jira ? seed.jira.url : "без Jira"}`, `Ключ: ${seed.key}`, `Название: ${seed.title}`, `Процесс: ${process}`, "Описание:", seed.description].join("\n"));
+      const action = await human.select("Создать задачу Teo и запустить процесс?", [
+        { label: "Создать и запустить", value: "create" as const },
+        { label: "Изменить", value: "edit" as const },
+        { label: "Отмена", value: "cancel" as const },
+      ]);
+      if (action === "cancel") return;
+      if (action === "edit") continue;
+      const state = await createTask(store, { key: seed.key, title: seed.title, description: seed.description, process });
+      await this.bind(ctx, state.key, { kickoff: true });
+      return;
+    }
   }
 
   /** /teo goal <цель>: режим цели без вопросов — ключ GOAL-N, название из цели (D35). */
@@ -305,7 +328,7 @@ export class ExtensionHost {
       .filter((e): e is typeof e & { type: "custom"; customType: string; data?: unknown } => e.type === "custom" && "customType" in e && e.customType === BINDING_ENTRY)
       .at(-1);
     const data = entry?.data as BindingEntry | undefined;
-    if (!data?.key || path.resolve(data.projectRoot) !== path.resolve(ctx.cwd)) return;
+    if (!data?.key || !samePath(data.projectRoot, ctx.cwd)) return;
     try {
       const b = await this.bind(ctx, data.key, { kickoff: false, auto: true });
       if (b) await this.resumeBoundWorkflow(b, ctx, true);
@@ -388,6 +411,20 @@ export class ExtensionHost {
       this.clearWaitTimer(b);
       await b.workflow.waitingHumanMessage(text);
       await this.resumeBoundWorkflow(b, ctx, true);
+      const after = await b.store.tasks.load(b.key);
+      if (after.phase === "waiting" && after.wait) {
+        await this.scheduleWaitTimer(b, ctx);
+        const remaining = formatWaitRemaining(new Date(after.wait.dueAt).getTime() - b.app.clock.now().getTime());
+        ctx.ui.notify(msg.extension.humanMessageSavedWaiting(after.wait.waitingFor, remaining), "info");
+        this.pi.sendMessage(
+          {
+            customType: "teo-waiting",
+            content: msg.extension.humanMessageChatNotice(text, after.wait.waitingFor, remaining),
+            display: true,
+          },
+          { triggerTurn: false },
+        );
+      }
       return { action: "handled" };
     }
     await b.store.tasks.commit(b.key, (s, c) => {
@@ -691,6 +728,7 @@ export class ExtensionHost {
     const decision = result.decision;
     if (!decision) {
       if (isHalted(result.state)) await this.finishResult(b, ctx, result.state);
+      else if (result.state.phase === "waiting") await this.scheduleWaitTimer(b, ctx);
       else await this.refreshStatus(b, ctx);
       return;
     }
@@ -1005,6 +1043,53 @@ export class ExtensionHost {
       ctx.ui.notify(errorText(this.binding?.app ?? extensionAppContext(ctx.cwd, this.homeDir).ctx, err), "error");
       return undefined;
     }
+  }
+}
+
+function extensionHuman(ctx: ExtensionCommandContext): HumanIO {
+  const required = (value: string | undefined): string => {
+    if (value === undefined) throw new UsageError("Создание задачи отменено.");
+    return value;
+  };
+  return {
+    async select<T>(title: string, choices: ReadonlyArray<Choice<T>>): Promise<T> {
+      const labels = choices.map((choice) => choice.label);
+      const selected = required(await ctx.ui.select(title, labels));
+      const index = labels.indexOf(selected);
+      const choice = choices[index];
+      if (!choice) throw new UsageError("Не выбран вариант.");
+      return choice.value;
+    },
+    async input(label: string, opts: { initial?: string; validate?: Validate } = {}): Promise<string> {
+      for (;;) {
+        const value = required(await ctx.ui.input(label, opts.initial)).trim();
+        const resolved = value || opts.initial || "";
+        const problem = opts.validate?.(resolved) ?? null;
+        if (!problem) return resolved;
+        ctx.ui.notify(problem, "warning");
+      }
+    },
+    async multiline(label: string, opts: { validate?: Validate } = {}): Promise<string> {
+      for (;;) {
+        const value = required(await ctx.ui.editor(label)).trim();
+        const problem = opts.validate?.(value) ?? null;
+        if (!problem) return value;
+        ctx.ui.notify(problem, "warning");
+      }
+    },
+    async confirm(question: string, defaultValue: boolean): Promise<boolean> {
+      return await ctx.ui.confirm(question, defaultValue ? "По умолчанию: да" : "По умолчанию: нет");
+    },
+    print(text: string): void { ctx.ui.notify(text, "info"); },
+    close(): void {},
+  };
+}
+
+function samePath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return path.resolve(a) === path.resolve(b);
   }
 }
 

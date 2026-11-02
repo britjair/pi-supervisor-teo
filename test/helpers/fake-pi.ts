@@ -110,6 +110,10 @@ export function fakeCtx(
         ui.editors.push({ title, prefill });
         return next();
       },
+      confirm: async () => {
+        const answer = await next();
+        return answer === undefined ? false : ["true", "yes", "да", "y"].includes(answer.toLowerCase());
+      },
       setEditorText: (text: string) => void (ui.editorText = text),
     },
     newSession: opts.newSession ?? (async () => ({ cancelled: true })),

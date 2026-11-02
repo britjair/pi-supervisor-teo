@@ -80,39 +80,50 @@ describe("создание задач и меню", () => {
     const sb = await withTasks("PAY-142", "AUTH-77");
     const human = new ScriptedHumanIO([
       { select: "Создать новую задачу" },
+      { select: "Нет, Jira-задачи ещё нет" },
+      { multiline: "Экспорт заказов в CSV\nВыгрузка заказов за период" },
+      { confirm: false },
       { select: "test — начальный этап" },
-      { input: "CRM-12" },
-      { input: "Экспорт заказов в CSV" },
-      { multiline: "Выгрузка заказов\nза период" },
       { select: "Создать" },
     ]);
     const ctx = testContext(sb, { human });
     const execute = vi.fn(async () => 0);
     expect(await runInteractive(ctx, { execute })).toBe(0);
-    expect(execute).toHaveBeenCalledWith(ctx, expect.anything(), "CRM-12");
     expect(human.remaining).toBe(0);
+    const keys = await readdir(path.join(sb.project, ".teo", "tasks"));
+    const created = keys.find((key) => key.startsWith("LOCAL-"));
+    expect(created).toBeDefined();
+    expect(execute).toHaveBeenCalledWith(ctx, expect.anything(), created);
     const [firstMenu] = human.printed.split("Новая задача");
     expect(firstMenu).toContain("PAY-142");
     expect(firstMenu).toContain("AUTH-77");
     expect(human.printed).toContain("Начальный этап: Изучение задачи (agent: explorer)");
-    expect(human.printed).toContain("✓ Задача CRM-12 создана");
-    expect(await readFile(path.join(taskDir(sb, "CRM-12"), "task.md"), "utf8")).toContain("Выгрузка заказов\nза период");
+    expect(human.printed).toContain(`✓ Задача ${created} создана`);
+    expect(await readFile(path.join(taskDir(sb, created ?? ""), "task.md"), "utf8")).toContain("Экспорт заказов в CSV\nВыгрузка заказов за период");
     expect((await runCli(sb, ["status"])).stdout).toContain("Задачи в работе: 3");
   });
 
-  it("меню: дубликат ключа без учёта регистра отклоняется в форме", async () => {
+  it("меню: без Jira генерирует локальный ключ и не спрашивает его у пользователя", async () => {
     const sb = await withTasks("PAY-142");
-    const human = new ScriptedHumanIO([{ select: "Создать новую задачу" }, { select: "test — начальный этап" }, { input: "pay-142" }]);
-    await expect(runInteractive(testContext(sb, { human }))).rejects.toThrow(/уже есть в проекте/);
+    const human = new ScriptedHumanIO([
+      { select: "Создать новую задачу" },
+      { select: "Нет, Jira-задачи ещё нет" },
+      { multiline: "Локальная задача" },
+      { confirm: false },
+      { select: "test — начальный этап" },
+      { select: "Создать" },
+    ]);
+    expect(await runInteractive(testContext(sb, { human }), { execute: async () => 0 })).toBe(0);
+    expect((await readdir(path.join(sb.project, ".teo", "tasks"))).some((key) => key.startsWith("LOCAL-"))).toBe(true);
   });
 
   it("пустой проект: сразу форма, «Отмена» возвращает в меню, .teo не создан", async () => {
     const sb = await sandbox(POLICY);
     const human = new ScriptedHumanIO([
-      { select: "test — начальный этап" },
-      { input: "T-1" },
-      { input: "t" },
+      { select: "Нет, Jira-задачи ещё нет" },
       { multiline: "d" },
+      { confirm: false },
+      { select: "test — начальный этап" },
       { select: "Отмена" },
       { select: "Выход" },
     ]);

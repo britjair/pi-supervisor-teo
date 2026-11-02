@@ -1,7 +1,7 @@
 // Режим цели (docs/07-extension-mode.md §5, D35): встроенный процесс processes/goal.md.
 
 import { readFileSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { turn } from "../../src/agents/fake/fake-runtime.js";
@@ -80,25 +80,27 @@ describe("teo new --goal", () => {
   it("в терминале: «Цель» в выборе процесса, сначала цель, название по умолчанию из неё", async () => {
     const sb = await sandbox(DED, { process: "dev" });
     const human = new ScriptedHumanIO([
-      { select: "Цель — без процесса" },
-      { input: "G-7" },
+      { select: "Нет, Jira-задачи ещё нет" },
       { multiline: "Собери отчёт по продажам\nза октябрь" },
-      { input: "" },
+      { confirm: false },
+      { select: "Цель — без процесса" },
       { select: "Создать" },
     ]);
     expect(await runInteractive(testContext(sb, { human }), { execute: async () => 0 })).toBe(0);
     expect(human.remaining).toBe(0);
-    expect(human.printed).toContain("Режим цели: задача без процесса");
     expect(human.printed).toContain("Начальный этап: Достижение цели (agent: performer)");
-    expect(await state(sb, "G-7")).toMatchObject({ process: GOAL_PROCESS, title: "Собери отчёт по продажам" });
+    const [key] = await readdir(path.join(sb.project, ".teo", "tasks"));
+    expect(key).toMatch(/^LOCAL-/);
+    expect(await state(sb, key ?? "")).toMatchObject({ process: GOAL_PROCESS, title: "Собери отчёт по продажам" });
   });
 
   it("в терминале без своих процессов режим цели выбирается сам", async () => {
     const sb = await sandbox();
     await writeFile(path.join(sb.processesDir, "README.txt"), "не процесс");
-    const human = new ScriptedHumanIO([{ input: "G-1" }, { multiline: "цель" }, { input: "" }, { select: "Создать" }]);
+    const human = new ScriptedHumanIO([{ select: "Нет, Jira-задачи ещё нет" }, { multiline: "цель" }, { confirm: false }, { select: "Создать" }]);
     expect(await runInteractive(testContext(sb, { human }), { execute: async () => 0 })).toBe(0);
-    expect((await state(sb, "G-1")).process).toBe(GOAL_PROCESS);
+    const [key] = await readdir(path.join(sb.project, ".teo", "tasks"));
+    expect((await state(sb, key ?? "")).process).toBe(GOAL_PROCESS);
   });
 });
 
