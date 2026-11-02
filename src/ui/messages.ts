@@ -623,6 +623,11 @@ export const msg = {
     piVersionMismatch: (sdk: string, cli: string) => `Версия Pi CLI (${cli}) отличается от SDK (${sdk})`,
     piModelOk: (ref: string, model: string) => `Модель ${ref} → ${model}, авторизация доступна`,
     piModelError: (ref: string) => `Модель ${ref} недоступна или не авторизована`,
+    supervisorProviderUnusable: (ref: string, model: string) =>
+      `Модель ${ref} → ${model} не может обслуживать supervisor и будет пропущена в его цепочке`,
+    supervisorProviderUnusableWhy: (provider: string) =>
+      `Провайдеру ${provider} нужен его собственный хук внутри вызывающей сессии, а сессия supervisor-а создаётся без расширений Pi.`,
+    supervisorProviderUnusableFix: "Для ролей этапов он работает штатно. Уберите его из роли supervisor в ~/.pi/teo/models.md.",
     projectRoot: (root: string, source: "git" | "cwd") =>
       `Проект ${root} (${source === "git" ? "корень git-репозитория" : "текущий каталог, git-репозиторий не найден"})`,
     projectAccess: "Права на чтение и запись каталога проекта",

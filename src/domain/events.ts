@@ -87,7 +87,17 @@ export type EventPayloads = {
     attempt?: number;
   };
   /** `applied: false` — переключение не состоялось, запрос ушёл бы в старую модель */
-  "model.fallback": { role: string; fromModel: string; toModel: string; reason: string; applied?: boolean };
+  "model.fallback": {
+    role: string;
+    fromModel: string;
+    toModel: string;
+    reason: string;
+    applied?: boolean;
+    /** Лимит исчерпан или модель не обслуживает роль */
+    cause?: "exhausted" | "provider_error";
+  };
+  /** Модель не смогла обслужить роль не из-за лимита и выведена из цепочки до перезапуска */
+  "model.unusable": { role: string; model: string; retriesUsed: number; reason: string };
 };
 
 export type EventType = keyof EventPayloads;

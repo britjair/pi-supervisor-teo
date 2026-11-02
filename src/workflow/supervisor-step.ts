@@ -2,6 +2,7 @@
 
 import path from "node:path";
 import { evaluationPrompt, protocolRetryPrompt, providerRetryPrompt, type TriggerData } from "../agents/prompts/supervisor-prompts.js";
+import { servesExtensionlessSession } from "../agents/pi/provider-traits.js";
 import { ModelUnavailableError, type ModelRef, type ResolvedModel } from "../agents/runtime.js";
 import { supervisorSessionSpec } from "../agents/session-spec.js";
 import type { TaskEvent } from "../domain/events.js";
@@ -42,6 +43,21 @@ type ModelSelection =
   | { kind: "exhausted"; earliestResetMs: number }
   | { kind: "unavailable"; error: string };
 
+/**
+ * Модели, которые в этом процессе не смогли обслужить supervisor не из-за лимита.
+ * Типичный случай — провайдер-расширение вроде claude-bridge: он проецирует системный промпт,
+ * записанный в before_agent_start хост-сессии Pi, а сессия supervisor-а создаётся отдельно и всегда
+ * без расширений — капчи нет, и мост отказывается работать.
+ * Набор живёт в памяти процесса: это свойство связки «провайдер + роль», а не состояние аккаунта,
+ * поэтому на диск он не пишется и сбрасывается перезапуском.
+ */
+const unusableForSupervisor = new Map<string, string>();
+
+/** Только для тестов и повторных прогонов в одном процессе. */
+export function resetUnusableSupervisorModels(): void {
+  unusableForSupervisor.clear();
+}
+
 async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise<ModelSelection> {
   let hasExhausted = false;
   let lastError = "Нет доступных моделей для supervisor-а";
@@ -54,6 +70,16 @@ async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise
     try {
       const resolved = await core.runtime.resolveModel(supervisorModelRef(core, refStr));
       const [provider = "unknown", modelId = "unknown"] = resolved.id.split("/");
+      // Провайдерам-мостам нужен свой хук в сессии, а у supervisor-а расширений нет: пробовать нечего.
+      if (!servesExtensionlessSession(provider)) {
+        lastError = `${resolved.id} не обслуживает сессию supervisor-а без расширений Pi`;
+        continue;
+      }
+      const unusable = unusableForSupervisor.get(resolved.id);
+      if (unusable) {
+        lastError = `${resolved.id} не обслуживает supervisor: ${unusable}`;
+        continue;
+      }
       checkedModels.push({ provider, modelId });
       if (defaultCooldownTracker.isExhausted(provider, modelId, now)) {
         hasExhausted = true;
@@ -89,6 +115,81 @@ async function resolveCooldownMs(core: EngineCore, provider: string, message: st
 }
 
 const supervisorSessionFile = (core: EngineCore) => path.join(core.task().dir, "sessions", "supervisor.jsonl");
+
+type SwitchResult = { kind: "switched" } | { kind: "exhausted"; error: string } | { kind: "not_applied"; model: string };
+
+/**
+ * Перейти на следующую модель цепочки и повторить тот же цикл на ней.
+ * Общий путь для двух причин: исчерпание лимита и прочая ошибка провайдера после технических повторов.
+ */
+async function switchToNextModel(
+  core: EngineCore,
+  after: TaskState,
+  mem: NonNullable<EngineCore["cycle"]>,
+  runKey: string,
+  fromModel: string,
+  cause: "exhausted" | "provider_error",
+  reason: string,
+): Promise<SwitchResult> {
+  const chain = mem.modelChain ?? [core.policy.spec.supervisor.model];
+  const remainingChain = chain.slice((mem.modelChainIndex ?? 0) + 1);
+  const selection = await selectSupervisorModel(core, remainingChain);
+  if (selection.kind !== "selected") {
+    return { kind: "exhausted", error: selection.kind === "unavailable" ? selection.error : "все модели цепочки исчерпаны" };
+  }
+  const nextModel = selection.model;
+  const spec = supervisorSessionSpec(core, nextModel);
+  // Сессия кешируется по файлу: без переоткрытия запрос ушёл бы в прежнюю нерабочую модель.
+  const handle = await core.pool.reopen(spec);
+  const applied = core.pool.openedModel(spec.file) === nextModel.id;
+  await core.store.tasks.appendDirect(core.key, "model.fallback", "cli", {
+    role: "supervisor",
+    fromModel: fromModel || "unknown",
+    toModel: nextModel.id,
+    applied,
+    cause,
+    reason,
+  });
+  if (!applied) return { kind: "not_applied", model: nextModel.id };
+
+  core.reporter.emit({
+    type: "info",
+    text:
+      cause === "exhausted"
+        ? `Переключение supervisor-а на резервную модель ${nextModel.id} (лимит ${fromModel} исчерпан)`
+        : `Переключение supervisor-а на резервную модель ${nextModel.id} (${fromModel} не обслуживает supervisor)`,
+  });
+  mem.modelUsed = nextModel.id;
+  mem.modelChainIndex = (mem.modelChainIndex ?? 0) + 1 + selection.index;
+  mem.technicalRetriesUsed = 0;
+
+  const limits = core.policy.spec.runtime;
+  const events = await core.events();
+  const stage = getStage(core.policy.spec, after.stage);
+  if (!stage || stage.kind !== "work") throw new Error("нет рабочего этапа для supervisor prompt");
+  const fullPolicy = after.supervisor.lastPolicyHashShown !== after.policyHash;
+  const prompt = evaluationPrompt({
+    promptId: core.ids.next(),
+    cycle: mem.cycle,
+    key: after.key,
+    title: after.title,
+    version: after.version,
+    now: core.clock.now(),
+    policyHash: after.policyHash,
+    policyRaw: fullPolicy ? core.policy.raw : null,
+    spec: core.policy.spec,
+    stage,
+    stageEnteredAt: after.stageEnteredAt,
+    stageCycles: after.stageCycles,
+    consecutiveRestarts: after.consecutiveRestarts,
+    maxRestarts: limits.maxConsecutiveRestarts,
+    rechecks: stage.recheck ? { count: after.stageRechecks.count, waitedMinutes: after.stageRechecks.waitedMinutes } : null,
+    trigger: await triggerData(core, after, events),
+    recentEvents: events.slice(-RECENT_EVENTS).map(eventLine),
+  });
+  core.pool.start(runKey, handle, prompt, { parent: core.signal, timeoutMs: limits.supervisorTimeoutMinutes * 60_000 });
+  return { kind: "switched" };
+}
 
 /**
  * Ожидание сброса лимита. `detail` — откуда взят срок (окно провайдера, ответ провайдера)
@@ -345,58 +446,11 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
         reason: outcome.message,
       });
 
-      const chain = mem.modelChain ?? [core.policy.spec.supervisor.model];
-      const remainingChain = chain.slice((mem.modelChainIndex ?? 0) + 1);
-      const fallbackSelection = await selectSupervisorModel(core, remainingChain);
-      if (fallbackSelection.kind === "selected") {
-        const nextModel = fallbackSelection.model;
-        const spec = supervisorSessionSpec(core, nextModel);
-        // Сессия кешируется по файлу: без переоткрытия запрос ушёл бы в прежнюю исчерпанную модель.
-        const handle = await core.pool.reopen(spec);
-        const applied = core.pool.openedModel(spec.file) === nextModel.id;
-        await core.store.tasks.appendDirect(core.key, "model.fallback", "cli", {
-          role: "supervisor",
-          fromModel: ranWith || "unknown",
-          toModel: nextModel.id,
-          applied,
-          reason: outcome.message,
-        });
-        if (!applied) {
-          core.cycle = null;
-          return block(core, after, "MODEL_SWITCH_FAILED", `не удалось переключить supervisor на резервную модель ${nextModel.id}`);
-        }
-        core.reporter.emit({
-          type: "info",
-          text: `Переключение supervisor-а на резервную модель ${nextModel.id} (лимит ${ranWith} исчерпан)`,
-        });
-        mem.modelUsed = nextModel.id;
-        mem.modelChainIndex = (mem.modelChainIndex ?? 0) + 1 + fallbackSelection.index;
-        mem.technicalRetriesUsed = 0;
-        const events = await core.events();
-        const stage = getStage(core.policy.spec, after.stage);
-        if (!stage || stage.kind !== "work") throw new Error("нет рабочего этапа для supervisor prompt");
-        const fullPolicy = after.supervisor.lastPolicyHashShown !== after.policyHash;
-        const prompt = evaluationPrompt({
-          promptId: core.ids.next(),
-          cycle: mem.cycle,
-          key: after.key,
-          title: after.title,
-          version: after.version,
-          now: core.clock.now(),
-          policyHash: after.policyHash,
-          policyRaw: fullPolicy ? core.policy.raw : null,
-          spec: core.policy.spec,
-          stage,
-          stageEnteredAt: after.stageEnteredAt,
-          stageCycles: after.stageCycles,
-          consecutiveRestarts: after.consecutiveRestarts,
-          maxRestarts: limits.maxConsecutiveRestarts,
-          rechecks: stage.recheck ? { count: after.stageRechecks.count, waitedMinutes: after.stageRechecks.waitedMinutes } : null,
-          trigger: await triggerData(core, after, events),
-          recentEvents: events.slice(-RECENT_EVENTS).map(eventLine),
-        });
-        core.pool.start(key, handle, prompt, { parent: core.signal, timeoutMs: limits.supervisorTimeoutMinutes * 60_000 });
-        return;
+      const switched = await switchToNextModel(core, after, mem, key, ranWith, "exhausted", outcome.message);
+      if (switched.kind === "switched") return;
+      if (switched.kind === "not_applied") {
+        core.cycle = null;
+        return block(core, after, "MODEL_SWITCH_FAILED", `не удалось переключить supervisor на резервную модель ${switched.model}`);
       }
 
       core.cycle = null;
@@ -412,6 +466,23 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
       mem.technicalRetriesUsed++;
       await core.sleep(limits.technicalRetryDelaySeconds * 1000);
       return resend(providerRetryPrompt({ promptId: core.ids.next(), cycle: mem.cycle, version: after.version }));
+    }
+
+    // Технические повторы исчерпаны: ошибка не случайная, эта модель роль не обслуживает.
+    // Блокировать задачу, пока в цепочке есть живые модели, нельзя.
+    const failedWith = core.pool.openedModel(supervisorSessionFile(core)) ?? mem.modelUsed ?? "";
+    if (failedWith) unusableForSupervisor.set(failedWith, outcome.message);
+    await core.store.tasks.appendDirect(core.key, "model.unusable", "cli", {
+      role: "supervisor",
+      model: failedWith || "unknown",
+      retriesUsed: mem.technicalRetriesUsed,
+      reason: outcome.message,
+    });
+    const switched = await switchToNextModel(core, after, mem, key, failedWith, "provider_error", outcome.message);
+    if (switched.kind === "switched") return;
+    if (switched.kind === "not_applied") {
+      core.cycle = null;
+      return block(core, after, "MODEL_SWITCH_FAILED", `не удалось переключить supervisor на резервную модель ${switched.model}`);
     }
   }
   if (outcome.kind !== "error" && mem.protocolRetriesUsed < limits.supervisorProtocolRetries) {

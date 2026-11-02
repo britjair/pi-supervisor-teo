@@ -162,3 +162,52 @@ core.pool.start(key, handle, prompt, ...);
 5. **Интеграционный (CLI)**: `teo models cooldown` и `teo models reset`.
 6. **Проверка на стенде**: после `/reload` убедиться по `sessions/supervisor.jsonl`, что в
    транскрипте появились сообщения с `provider`, отличным от `openai-codex`.
+
+---
+
+## 4. Второй раунд: ошибка провайдера не должна блокировать задачу
+
+После первого раунда fallback впервые заработал по-настоящему — и сразу вскрылась проблема,
+которую прежний баг маскировал: до второй модели цепочки запрос раньше не доходил.
+
+### 4.1. Что случилось (APD-1264, цикл 27)
+```
+model.exhausted  openai-codex/gpt-5.6-sol  scope=provider known=False attempt=1
+model.fallback   gpt-5.6-sol -> claude-bridge/claude-opus-5  applied=True
+supervisor.protocol_error
+task.blocked     SUPERVISOR_NO_DECISION: prompt-capture: no capture for this 10173-char system prompt
+```
+`applied: true` — переключение состоялось. Но claude-bridge вернул `prompt-capture: no capture`.
+
+### 4.2. Почему claude-bridge не может обслужить supervisor
+`pi-claude-bridge` — не API-провайдер, а мост к Claude Code. Он проецирует в SDK системный промпт,
+записанный его хуком `before_agent_start`. Хранилище капч process-global
+(`globalThis[SHARED_CAPTURES_KEY]`), но наполняют его только сессии, где расширение загружено.
+Сессия supervisor-а создаётся через SDK и всегда с `noExtensions: true`
+(`pi-agent-runtime.openSession:170`, жёстко для роли supervisor) — капчи для её промпта
+(10 173 симв.) не существует. Две известные капчи (18 129 симв.) — из пользовательской
+TUI-сессии, расходятся на 208-м символе.
+
+Для ролей этапов тот же провайдер работает штатно: они идут в пользовательской сессии Pi.
+`pi-antigravity` самодостаточен (берёт промпт из контекста запроса) и supervisor обслуживает.
+
+### 4.3. Дефект в движке
+Fallback по цепочке срабатывал только внутри `isModelExhaustedError`. Ошибка не про лимит →
+technical retries → `SUPERVISOR_NO_DECISION`, хотя в цепочке оставалась живая antigravity.
+
+### 4.4. Сделано
+- `switchToNextModel` вынесена из ветки лимита: общий путь для двух причин
+  (`cause: "exhausted" | "provider_error"`).
+- Устойчивая ошибка провайдера (после `technicalRetries`) → событие `model.unusable`,
+  модель выводится из цепочки до перезапуска процесса, цикл продолжается на следующей.
+  Cooldown при этом не ставится: это не лимит аккаунта.
+- `SUPERVISOR_NO_DECISION` возникает только когда живых моделей в цепочке не осталось.
+- `src/agents/pi/provider-traits.ts`: `PROVIDERS_NEEDING_SESSION_EXTENSION = ["claude-bridge"]`.
+  `selectSupervisorModel` пропускает такие провайдеры без холостой попытки.
+- `teo doctor` предупреждает, если провайдер-мост стоит в цепочке роли `supervisor`,
+  с объяснением причины и подсказкой. Для ролей этапов предупреждения нет.
+- `~/.pi/teo/models.md`: claude-bridge убран из роли supervisor (бэкап рядом).
+
+### 4.5. Проверено
+Новые тесты падают на прежнем поведении ровно с тем же `SUPERVISOR_NO_DECISION`
+и текстом `prompt-capture`, что увидел пользователь, и проходят на новом.

@@ -9,6 +9,7 @@ import path from "node:path";
 import { openProject, type AppContext } from "../app.js";
 import { agentList, type LoadedPolicy, type ThinkingLevel } from "../domain/policy.js";
 import { ExitCode } from "../errors/errors.js";
+import { providerOf, servesExtensionlessSession } from "../agents/pi/provider-traits.js";
 import { detectProjectRoot } from "../project/project-root.js";
 import { GITIGNORE_CONTENT } from "../state/layout.js";
 import { holderOf } from "../state/lock-manager.js";
@@ -133,11 +134,25 @@ export async function collectDoctorChecks(
           ...Object.values(modelsConfig.profiles).flatMap((list) => list.map((m) => JSON.stringify([m, null, "inherit"] as const))),
         ]),
       ];
+      // Цепочка supervisor-а: его сессия создаётся без расширений Pi, и провайдер-мост её не обслужит
+      const supervisorChain = new Set([
+        ...(modelsConfig.roles["supervisor"] ?? []),
+        ...valid.map((policy) => policy.spec.supervisor.model),
+      ]);
       for (const encoded of refs) {
         const [ref, thinking, extensions] = JSON.parse(encoded) as [string, ThinkingLevel | null, "inherit" | "none"];
         try {
           const found = await pi.resolveModel({ ref, thinking, extensions: extensions === "inherit" });
           checks.push({ id: "pi.model", level: "ok", title: msg.doctor.piModelOk(ref, found.id), details: [] });
+          const provider = providerOf(found.id);
+          if (supervisorChain.has(ref) && !servesExtensionlessSession(provider)) {
+            checks.push({
+              id: "pi.model.supervisor",
+              level: "warning",
+              title: msg.doctor.supervisorProviderUnusable(ref, found.id),
+              details: [msg.doctor.supervisorProviderUnusableWhy(provider), msg.doctor.supervisorProviderUnusableFix],
+            });
+          }
         } catch (err) {
           checks.push({ id: "pi.model", level: "error", title: msg.doctor.piModelError(ref), details: [err instanceof Error ? err.message : String(err)] });
         }
