@@ -70,6 +70,7 @@ describe("examples/processes/dev.md", async () => {
       maxInvalidDecisionsPerCycle: 3,
       maxCyclesPerStage: 30,
       supervisorTimeoutMinutes: 30,
+      supervisorModelTimeoutMinutes: 10,
       technicalRetries: 2,
       technicalRetryDelaySeconds: 15,
     });

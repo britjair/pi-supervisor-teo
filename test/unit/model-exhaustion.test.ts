@@ -30,6 +30,8 @@ describe("model-exhaustion: детектор и трекер cooldown", () => {
     expect(parseResetCooldownMs("Quota resets in 5 minutes")).toBe(5 * 60 * 1000);
     expect(parseResetCooldownMs("Quota resets in 45 seconds")).toBe(45 * 1000);
     expect(parseResetCooldownMs("The usage limit has been reached")).toBeNull();
+    const beforeClockReset = new Date(2026, 10, 3, 19, 10, 0).getTime();
+    expect(parseResetCooldownMs("Claude quota exceeded — resets at 8:40:00 PM", beforeClockReset)).toBe(90 * 60 * 1000);
   });
 
   it("парсит часы, сутки, тильду и русские формы", () => {
@@ -101,6 +103,35 @@ describe("model-exhaustion: детектор и трекер cooldown", () => {
     const known = tracker.recordExhausted("openai-codex", "m", 7_200_000, "usage limit", t0, { scope: "provider" });
     expect(known.attempt).toBe(1);
     expect(known.exhaustedUntil - t0).toBe(7_200_000);
+  });
+
+  it("известный долгий cooldown разрешает canary раз в час", () => {
+    const tracker = new ModelCooldownTracker();
+    const t0 = 1_000_000;
+    const record = tracker.recordExhausted("openai-codex", "m", 8 * 60 * 60_000, "usage limit", t0, {
+      scope: "provider",
+      resetDetail: "недельное окно",
+    });
+
+    expect(tracker.isResetKnown(record)).toBe(true);
+    expect(record.resetDetail).toBe("недельное окно");
+    expect(tracker.probeDueAt(record)).toBe(t0 + 60 * 60_000);
+    expect(tracker.canProbe(record, t0 + 59 * 60_000)).toBe(false);
+    expect(tracker.claimProbe(record, t0 + 60 * 60_000)).toBe(true);
+    expect(tracker.claimProbe(record, t0 + 60 * 60_000)).toBe(false);
+  });
+
+  it("распознаёт семантику старых записей без resetKnown", () => {
+    const tracker = new ModelCooldownTracker();
+    const t0 = 1_000_000;
+    const unknown: CooldownRecord = {
+      provider: "p", modelId: null, attempt: 1, reason: "limit", recordedAt: t0,
+      exhaustedUntil: t0 + (PROBE_SCHEDULE_MS[0] ?? 0),
+    };
+    const known: CooldownRecord = { ...unknown, exhaustedUntil: t0 + 44 * 60 * 60_000 };
+    expect(tracker.isResetKnown(unknown)).toBe(false);
+    expect(tracker.isResetKnown(known)).toBe(true);
+    expect(tracker.probeDueAt(known)).toBe(t0 + 60 * 60_000);
   });
 
   it("list и reset управляют cooldown-ами вручную", () => {

@@ -118,6 +118,10 @@ export class Engine implements EngineCore {
       else if (e.type === "usage") this.reporter.emit({ type: "usage", actor, usage: e.usage });
       else if (e.type === "tool.started") this.reporter.emit({ type: "tool.started", actor, toolName: e.toolName, argsPreview: e.argsPreview });
       else if (e.type === "tool.finished") this.reporter.emit({ type: "tool.finished", actor, toolName: e.toolName, ok: e.ok });
+      else if (e.type === "retry") {
+        if (role === "supervisor" && this.cycle) this.cycle.lastProviderError = e.reason;
+        this.reporter.emit({ type: "warning", text: `${role}: повтор провайдера ${e.attempt}: ${e.reason}` });
+      }
     });
   }
 

@@ -24,6 +24,10 @@ const recordSchema = z.object({
   attempt: z.number().int().nonnegative(),
   reason: z.string(),
   recordedAt: z.number().finite(),
+  resetKnown: z.boolean().optional(),
+  resetDetail: z.string().nullable().optional(),
+  lastProbeAt: z.number().finite().nullable().optional(),
+  nextProbeAt: z.number().finite().nullable().optional(),
 });
 
 const fileSchema = z.object({
@@ -43,7 +47,19 @@ export class FileCooldownStore implements CooldownPersistence {
     }
     try {
       const parsed = fileSchema.safeParse(JSON.parse(raw));
-      return parsed.success ? parsed.data.records : [];
+      if (!parsed.success) return [];
+      return parsed.data.records.map((r) => ({
+        provider: r.provider,
+        modelId: r.modelId,
+        exhaustedUntil: r.exhaustedUntil,
+        attempt: r.attempt,
+        reason: r.reason,
+        recordedAt: r.recordedAt,
+        ...(r.resetKnown !== undefined ? { resetKnown: r.resetKnown } : {}),
+        ...(r.resetDetail !== undefined ? { resetDetail: r.resetDetail } : {}),
+        ...(r.lastProbeAt !== undefined ? { lastProbeAt: r.lastProbeAt } : {}),
+        ...(r.nextProbeAt !== undefined ? { nextProbeAt: r.nextProbeAt } : {}),
+      }));
     } catch {
       return [];
     }

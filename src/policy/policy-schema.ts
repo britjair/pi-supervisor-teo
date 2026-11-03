@@ -100,6 +100,7 @@ const runtimeSchema = z.strictObject({
   maxInvalidDecisionsPerCycle: z.int().min(1).max(20).optional(),
   maxCyclesPerStage: z.int().min(1).max(1000).nullable().optional(),
   supervisorTimeoutMinutes: minutesSchema.optional(),
+  supervisorModelTimeoutMinutes: minutesSchema.optional(),
   technicalRetries: z.int().min(0).max(10).optional(),
   technicalRetryDelaySeconds: z.int().min(1).max(600).optional(),
 });

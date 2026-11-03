@@ -136,7 +136,8 @@ runtime:                            # опционально целиком
   supervisorProtocolRetries: <int>                  # default 1, 0..10
   maxInvalidDecisionsPerCycle: <int>                # default 3, 1..20
   maxCyclesPerStage: <int> | null                   # default null (без лимита), 1..1000
-  supervisorTimeoutMinutes: <number>                # default 30, 1..1440
+  supervisorTimeoutMinutes: <number>                # совместимый верхний предел, default 30, 1..1440
+  supervisorModelTimeoutMinutes: <number>           # watchdog одного вызова модели, default 10, 1..1440
   technicalRetries: <int>                           # default 2, 0..10
   technicalRetryDelaySeconds: <int>                 # default 15, 1..600
 ```

@@ -23,6 +23,23 @@ export type EventPayloads = {
   "agent.continued": { runId: string; decisionId: string | null };
   "agent.restarted": { previousRunId: string; runId: string; decisionId: string | null; consecutiveRestarts: number };
   "supervisor.started": { cycle: number; trigger: SupervisorTrigger | null };
+  "supervisor.models_checked": {
+    role: "supervisor";
+    checks: Array<{
+      ref: string;
+      resolvedModel: string | null;
+      status: "selected" | "cooldown" | "unavailable" | "incompatible" | "unusable" | "canary";
+      reason: string;
+      cooldown?: {
+        scope: "provider" | "model";
+        resetAt: string;
+        remainingMs: number;
+        resetKnown: boolean;
+        resetDetail: string | null;
+        nextProbeAt: string;
+      };
+    }>;
+  };
   "supervisor.decision": { decisionId: string; cycle: number; action: ControlAction; input: unknown };
   "supervisor.decision_rejected": { cycle: number; action: string; code: string; message: string };
   "supervisor.protocol_error": { cycle: number; retriesUsed: number };
@@ -76,6 +93,8 @@ export type EventPayloads = {
   "model.exhausted": {
     provider: string;
     modelId: string;
+    /** Роль, для которой модель ответила лимитом. */
+    role?: string;
     resetAt: string;
     reason: string;
     /** Лимит на аккаунт провайдера или только на модель */

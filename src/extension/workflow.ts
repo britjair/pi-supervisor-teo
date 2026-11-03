@@ -71,7 +71,11 @@ class ExtensionCore implements EngineCore {
     public policy: LoadedPolicy,
     homeDir: string,
   ) {
-    this.pool = new SessionPool(runtime, () => undefined);
+    this.pool = new SessionPool(runtime, (_file, role, event) => {
+      if (role === "supervisor" && event.type === "retry" && this.cycle) {
+        this.cycle.lastProviderError = event.reason;
+      }
+    });
     this.providerReset = codexResetProbe(homeDir);
   }
 
@@ -140,6 +144,15 @@ export class ExtensionWorkflow {
 
   get policy(): LoadedPolicy {
     return this.core.policy;
+  }
+
+  /** Состояние текущего обращения supervisor-а для status bar. */
+  supervisorActivity(): { model: string | null; startedAtMs: number | null; lastProviderError: string | null } {
+    return {
+      model: this.core.cycle?.modelUsed ?? null,
+      startedAtMs: this.core.cycle?.modelAttemptStartedAtMs ?? null,
+      lastProviderError: this.core.cycle?.lastProviderError ?? null,
+    };
   }
 
   /** Guard после report_*: синхронный признак для текущего logical run. */
@@ -333,7 +346,7 @@ export class ExtensionWorkflow {
     else if (record?.report?.kind === "blocker") reason = "reported_blocker";
     else reason = "unstructured_settle";
     await settleRun(this.core, state, reason, {
-      ...(event.outcome === "error" ? { error: "пользовательская сессия Pi завершила ход с ошибкой" } : {}),
+      ...(event.outcome === "error" ? { error: lastAssistantError(event.context.llmMessages as unknown[]) ?? "пользовательская сессия Pi завершила ход с ошибкой" } : {}),
       ...(lastText ? { lastAssistantText: lastText.slice(-LAST_TEXT_MAX) } : {}),
     });
     this.currentReportedRun = null;
@@ -424,6 +437,18 @@ export class ExtensionWorkflow {
     await this.core.pool.dispose();
     await this.core.runtime.dispose();
   }
+}
+
+function lastAssistantError(messages: unknown[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || typeof message !== "object") continue;
+    const candidate = message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown };
+    if (candidate.role === "assistant" && candidate.stopReason === "error" && typeof candidate.errorMessage === "string") {
+      return candidate.errorMessage.slice(-LAST_TEXT_MAX);
+    }
+  }
+  return null;
 }
 
 function lastAssistantText(messages: unknown[]): string | null {
