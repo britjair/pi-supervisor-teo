@@ -41,6 +41,10 @@ export type CycleMemory = {
   modelUsed?: string;
   modelChain?: string[];
   modelChainIndex?: number;
+  /** Начало текущего обращения к модели для elapsed/watchdog UI. */
+  modelAttemptStartedAtMs?: number;
+  /** Последний внутренний auto-retry провайдера. */
+  lastProviderError?: string;
   lastPrompt?: string;
 };
 

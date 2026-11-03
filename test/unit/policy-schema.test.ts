@@ -95,6 +95,7 @@ describe("defaults", () => {
       maxInvalidDecisionsPerCycle: 3,
       maxCyclesPerStage: null,
       supervisorTimeoutMinutes: 30,
+      supervisorModelTimeoutMinutes: 10,
       technicalRetries: 2,
       technicalRetryDelaySeconds: 15,
     });

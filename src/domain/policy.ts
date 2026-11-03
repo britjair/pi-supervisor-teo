@@ -88,6 +88,8 @@ export type RuntimeSettings = {
   maxInvalidDecisionsPerCycle: number;
   maxCyclesPerStage: number | null;
   supervisorTimeoutMinutes: number;
+  /** Watchdog одного обращения к конкретной supervisor-модели. */
+  supervisorModelTimeoutMinutes: number;
   technicalRetries: number;
   technicalRetryDelaySeconds: number;
 };

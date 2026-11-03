@@ -93,6 +93,8 @@ export type EventPayloads = {
   "model.exhausted": {
     provider: string;
     modelId: string;
+    /** Роль, для которой модель ответила лимитом. */
+    role?: string;
     resetAt: string;
     reason: string;
     /** Лимит на аккаунт провайдера или только на модель */

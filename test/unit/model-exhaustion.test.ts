@@ -30,6 +30,8 @@ describe("model-exhaustion: детектор и трекер cooldown", () => {
     expect(parseResetCooldownMs("Quota resets in 5 minutes")).toBe(5 * 60 * 1000);
     expect(parseResetCooldownMs("Quota resets in 45 seconds")).toBe(45 * 1000);
     expect(parseResetCooldownMs("The usage limit has been reached")).toBeNull();
+    const beforeClockReset = new Date(2026, 10, 3, 19, 10, 0).getTime();
+    expect(parseResetCooldownMs("Claude quota exceeded — resets at 8:40:00 PM", beforeClockReset)).toBe(90 * 60 * 1000);
   });
 
   it("парсит часы, сутки, тильду и русские формы", () => {

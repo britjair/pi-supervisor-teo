@@ -256,8 +256,8 @@ export const msg = {
     status: (key: string, stage: string, agent: string, cycle: number) => `teo: ${key} · ${stage} · ${agent} · цикл ${cycle}`,
     statusPaused: (key: string) => `teo: ${key} · пауза`,
     statusNext: (key: string, stage: string) => `teo: ${key} · ${stage} · нужна новая сессия`,
-    supervisorChecking: (key: string, cycle: number, frame: string, model?: string | null) =>
-      `teo: ${key} · ${frame} supervisor проверяет${model ? ` · ${model}` : ""} · цикл ${cycle}`,
+    supervisorChecking: (key: string, cycle: number, frame: string, details?: string | null) =>
+      `teo: ${key} · ${frame} supervisor проверяет${details ? ` · ${details}` : ""} · цикл ${cycle}`,
     waitingHuman: (key: string) => `teo: ${key} · ожидается ответ пользователя`,
     waitingUntil: (key: string, dueAt: string, remaining: string) => `teo: ${key} · ⏳ ожидание до ${dueAt} · осталось ${remaining}`,
     questionDeferred: "Вопрос supervisor-а остался открытым. Продолжение будет доступно через /teo resume после восстановления диалога.",

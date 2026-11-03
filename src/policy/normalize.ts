@@ -18,6 +18,7 @@ export const RUNTIME_DEFAULTS: RuntimeSettings = {
   maxInvalidDecisionsPerCycle: 3,
   maxCyclesPerStage: null,
   supervisorTimeoutMinutes: 30,
+  supervisorModelTimeoutMinutes: 10,
   technicalRetries: 2,
   technicalRetryDelaySeconds: 15,
 };
@@ -112,6 +113,7 @@ export function normalizePolicy(raw: RawPolicy): PolicySpec {
     maxInvalidDecisionsPerCycle: rt.maxInvalidDecisionsPerCycle ?? RUNTIME_DEFAULTS.maxInvalidDecisionsPerCycle,
     maxCyclesPerStage: rt.maxCyclesPerStage === undefined ? RUNTIME_DEFAULTS.maxCyclesPerStage : rt.maxCyclesPerStage,
     supervisorTimeoutMinutes: rt.supervisorTimeoutMinutes ?? RUNTIME_DEFAULTS.supervisorTimeoutMinutes,
+    supervisorModelTimeoutMinutes: rt.supervisorModelTimeoutMinutes ?? RUNTIME_DEFAULTS.supervisorModelTimeoutMinutes,
     technicalRetries: rt.technicalRetries ?? RUNTIME_DEFAULTS.technicalRetries,
     technicalRetryDelaySeconds: rt.technicalRetryDelaySeconds ?? RUNTIME_DEFAULTS.technicalRetryDelaySeconds,
   };

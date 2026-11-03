@@ -33,7 +33,8 @@ import { isFinished, isHalted, type HumanRequest, type TaskState } from "../doma
 import { UsageError } from "../errors/errors.js";
 import { GOAL_PROCESS } from "../policy/process-catalog.js";
 import { matchPiModel, resolveModelChain } from "../policy/models-config.js";
-import { defaultCooldownTracker } from "../util/model-exhaustion.js";
+import { defaultCooldownTracker, exhaustionScope, isModelExhaustedError, parseResetCooldownMs } from "../util/model-exhaustion.js";
+import { redactString, truncate } from "../util/redact.js";
 import { collectSessionItems } from "../commands/sessions.js";
 import type { HeldLock } from "../state/lock-manager.js";
 import type { ProjectStore } from "../state/project-store.js";
@@ -376,6 +377,7 @@ export class ExtensionHost {
       await b.workflow.settleOnly(event);
       return;
     }
+    await this.captureHostModelCooldown(b, current, event, ctx);
     let result = await this.withSupervisorStatus(b, ctx, () => b.workflow.settleAndSupervise(event));
 
     // ask_human может породить следующий supervisor-цикл прямо в том же boundary (D39).
@@ -400,6 +402,35 @@ export class ExtensionHost {
     }
 
     return this.applyInHostSession(b, ctx, result);
+  }
+
+  /** Лимит host-модели: записать cooldown, чтобы следующий ход этапа взял fallback. */
+  private async captureHostModelCooldown(
+    b: Binding,
+    state: TaskState,
+    event: AgentBeforeSettleEvent,
+    ctx: ExtensionContext,
+  ): Promise<void> {
+    if (event.outcome !== "error" || !ctx.model) return;
+    const error = lastAssistantProviderError(event.context.llmMessages as unknown[]);
+    if (!error || !isModelExhaustedError(error)) return;
+    const now = b.app.clock.now().getTime();
+    const scope = exhaustionScope(error);
+    const duration = parseResetCooldownMs(error, now);
+    const record = defaultCooldownTracker.recordExhausted(ctx.model.provider, ctx.model.id, duration, error, now, { scope });
+    await b.store.tasks.appendDirect(b.key, "model.exhausted", "cli", {
+      provider: ctx.model.provider,
+      modelId: ctx.model.id,
+      scope,
+      role: state.currentRun?.agentId ?? "agent",
+      resetAt: new Date(record.exhaustedUntil).toISOString(),
+      resetKnown: duration !== null,
+      attempt: record.attempt,
+      reason: error,
+    });
+    b.modelAppliedFor = null;
+    const until = new Date(record.exhaustedUntil).toISOString();
+    ctx.ui.notify(`teo: модель роли ${state.currentRun?.agentId ?? "agent"} ${ctx.model.provider}/${ctx.model.id} поставлена на cooldown до ${until}; следующий ход выберет fallback.`, "warning");
   }
 
   /** Сообщение пользователя при привязанной задаче — подтверждение для guard humanResponse (D40). */
@@ -972,7 +1003,14 @@ export class ExtensionHost {
     const cycle = state.phase === "decision_pending" ? state.supervisor.cycle : state.supervisor.cycle + 1;
     let index = 0;
     const render = () => {
-      if (this.binding === b) ctx.ui.setStatus("teo", msg.extension.supervisorChecking(b.key, cycle, SUPERVISOR_SPINNER[index] ?? "⠋", b.workflow.supervisorModel()));
+      if (this.binding === b) {
+        const activity = b.workflow.supervisorActivity();
+        const elapsed = activity.startedAtMs === null ? null : Math.max(0, Math.floor((b.app.clock.now().getTime() - activity.startedAtMs) / 1000));
+        const elapsedText = elapsed === null ? null : elapsed < 60 ? `${elapsed}с` : `${Math.floor(elapsed / 60)}м ${elapsed % 60}с`;
+        const retry = activity.lastProviderError ? `retry: ${truncate(redactString(activity.lastProviderError).replace(/\s+/g, " "), 80)}` : null;
+        const details = [activity.model, elapsedText, retry].filter(Boolean).join(" · ");
+        ctx.ui.setStatus("teo", msg.extension.supervisorChecking(b.key, cycle, SUPERVISOR_SPINNER[index] ?? "⠋", details));
+      }
       index = (index + 1) % SUPERVISOR_SPINNER.length;
     };
     render();
@@ -1106,6 +1144,26 @@ function samePath(a: string, b: string): boolean {
   } catch {
     return path.resolve(a) === path.resolve(b);
   }
+}
+
+function lastAssistantProviderError(messages: unknown[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || typeof message !== "object") continue;
+    const candidate = message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown; content?: unknown };
+    if (candidate.role !== "assistant" || candidate.stopReason !== "error") continue;
+    if (typeof candidate.errorMessage === "string" && candidate.errorMessage.trim()) return truncate(redactString(candidate.errorMessage.trim()), 500);
+    if (typeof candidate.content === "string" && candidate.content.trim()) return truncate(redactString(candidate.content.trim()), 500);
+    if (Array.isArray(candidate.content)) {
+      const text = candidate.content
+        .filter((block): block is { type: "text"; text: string } => Boolean(block && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string"))
+        .map((block) => block.text)
+        .join("\n")
+        .trim();
+      if (text) return truncate(redactString(text), 500);
+    }
+  }
+  return null;
 }
 
 function formatWaitRemaining(milliseconds: number): string {

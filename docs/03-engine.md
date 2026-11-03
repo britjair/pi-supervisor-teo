@@ -242,7 +242,10 @@ block_task, cancel_task. Текущий expectedStateVersion: 43.
 
 Счётчик `protocolRetriesUsed` хранится в памяти цикла: после рестарта процесса цикл начинается заново (§8), и счётчик сбрасывается. Это допустимо, потому что рестарт процесса — внешнее событие.
 
-`runtime.supervisorTimeoutMinutes`: по истечении сессия прерывается (`abort`), дальше как «без решения».
+`runtime.supervisorTimeoutMinutes` сохраняется как совместимый верхний предел, а
+`runtime.supervisorModelTimeoutMinutes` (default 10) — watchdog одного обращения к конкретной
+модели; применяется меньшее из двух значений. По watchdog-timeout сессия прерывается (`abort`), модель помечается непригодной для
+supervisor-а в этом процессе и выполняется fallback; это не protocol retry.
 
 ## 6. Human step
 
@@ -402,7 +405,8 @@ commit: phase = supervisor_pending, status = active, pendingHumanRequest = null,
 | `maxInvalidDecisionsPerCycle` | невалидные управляющие вызовы | `blocked` с `SUPERVISOR_INVALID_DECISIONS` |
 | `maxCyclesPerStage` | старт цикла supervisor | `blocked` с `STAGE_CYCLE_LIMIT` |
 | `agents.<id>.timeoutMinutes` | agent run | `abort` → settle `timeout` → supervisor |
-| `supervisorTimeoutMinutes` | цикл supervisor | `abort` → как «без решения» |
+| `supervisorTimeoutMinutes` | совместимый верхний предел обращения | `abort` |
+| `supervisorModelTimeoutMinutes` | одно обращение к модели | `abort` → `model.unusable` → fallback |
 | `technicalRetries`, `technicalRetryDelaySeconds` | ошибки провайдера после ретраев Pi | повтор, затем settle `runtime_error` (агент) или `blocked` (supervisor) |
 | `stage.recheck.minMinutes`, `maxMinutes` | валидация `schedule_recheck` | tool error `RECHECK_DELAY_OUT_OF_RANGE` |
 | `stage.recheck.maxCount` | валидация `schedule_recheck` | tool error `RECHECK_LIMIT_REACHED`, supervisor выбирает `ask_human` или `block_task` |

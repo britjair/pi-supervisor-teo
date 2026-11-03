@@ -24,6 +24,11 @@ const RECENT_EVENTS = 10;
 
 export const supervisorRunKey = (cycle: number) => `supervisor:${cycle}`;
 
+function supervisorModelTimeoutMs(core: EngineCore): number {
+  const runtime = core.policy.spec.runtime;
+  return Math.min(runtime.supervisorTimeoutMinutes, runtime.supervisorModelTimeoutMinutes) * 60_000;
+}
+
 async function block(core: EngineCore, state: TaskState, code: string, message: string): Promise<ExitOutcome> {
   await core.store.tasks.commit(core.key, (s, c) => {
     c.emit("task.blocked", "cli", { code, message, by: "cli" });
@@ -240,6 +245,8 @@ async function switchToNextModel(
   });
   mem.modelUsed = nextModel.id;
   mem.modelChainIndex = (mem.modelChainIndex ?? 0) + 1 + selection.index;
+  mem.modelAttemptStartedAtMs = core.clock.now().getTime();
+  delete mem.lastProviderError;
   mem.technicalRetriesUsed = 0;
 
   const limits = core.policy.spec.runtime;
@@ -266,7 +273,7 @@ async function switchToNextModel(
     trigger: await triggerData(core, after, events),
     recentEvents: events.slice(-RECENT_EVENTS).map(eventLine),
   });
-  core.pool.start(runKey, handle, prompt, { parent: core.signal, timeoutMs: limits.supervisorTimeoutMinutes * 60_000 });
+  core.pool.start(runKey, handle, prompt, { parent: core.signal, timeoutMs: supervisorModelTimeoutMs(core) });
   return { kind: "switched" };
 }
 
@@ -457,6 +464,7 @@ export async function startSupervisor(core: EngineCore, state: TaskState): Promi
     modelUsed: model.id,
     modelChain: chain,
     modelChainIndex: selection.index,
+    modelAttemptStartedAtMs: core.clock.now().getTime(),
   };
   const events = await core.events();
   const prompt = evaluationPrompt({
@@ -481,7 +489,7 @@ export async function startSupervisor(core: EngineCore, state: TaskState): Promi
   const handle = await core.pool.open(spec);
   core.reporter.context({ key: core.key, stage: next.stage, stageTitle: stage.title, agent: null });
   core.reporter.emit({ type: "supervisor.started", cycle, trigger: next.supervisor.trigger?.kind ?? null });
-  core.pool.start(supervisorRunKey(cycle), handle, prompt, { parent: core.signal, timeoutMs: limits.supervisorTimeoutMinutes * 60_000 });
+  core.pool.start(supervisorRunKey(cycle), handle, prompt, { parent: core.signal, timeoutMs: supervisorModelTimeoutMs(core) });
 }
 
 /** supervisor_running: дождаться решения (03-engine.md §5.3, §5.5). */
@@ -512,8 +520,30 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
     return block(core, after, "SUPERVISOR_INVALID_DECISIONS", `supervisor ${mem.invalidCount} раз подряд предложил невалидное решение в цикле ${mem.cycle}`);
   }
   const resend = async (prompt: string) => {
-    core.pool.start(key, active.handle, prompt, { parent: core.signal, timeoutMs: limits.supervisorTimeoutMinutes * 60_000 });
+    mem.modelAttemptStartedAtMs = core.clock.now().getTime();
+    delete mem.lastProviderError;
+    core.pool.start(key, active.handle, prompt, { parent: core.signal, timeoutMs: supervisorModelTimeoutMs(core) });
   };
+  if (outcome.kind === "aborted" && active.timedOut) {
+    const failedWith = core.pool.openedModel(supervisorSessionFile(core)) ?? mem.modelUsed ?? "";
+    const timeoutMinutes = Math.min(limits.supervisorTimeoutMinutes, limits.supervisorModelTimeoutMinutes);
+    const reason = `модель не завершила обращение за ${timeoutMinutes} мин${mem.lastProviderError ? `; последний retry: ${truncate(redactString(mem.lastProviderError), 240)}` : ""}`;
+    if (failedWith) unusableForSupervisor.set(failedWith, reason);
+    await core.store.tasks.appendDirect(core.key, "model.unusable", "cli", {
+      role: "supervisor",
+      model: failedWith || "unknown",
+      retriesUsed: mem.technicalRetriesUsed,
+      reason,
+    });
+    const switched = await switchToNextModel(core, after, mem, key, failedWith, "provider_error", reason);
+    if (switched.kind === "switched") return;
+    if (switched.kind === "not_applied") {
+      core.cycle = null;
+      return block(core, after, "MODEL_SWITCH_FAILED", `не удалось переключить supervisor на резервную модель ${switched.model}`);
+    }
+    core.cycle = null;
+    return block(core, after, "SUPERVISOR_MODEL_TIMEOUT", `${reason}. ${switched.error}`);
+  }
   if (outcome.kind === "error") {
     if (isModelExhaustedError(outcome.message)) {
       // Что реально ответило ошибкой — модель открытой сессии, а не то, что мы собирались использовать.
@@ -526,6 +556,7 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
       await core.store.tasks.appendDirect(core.key, "model.exhausted", "cli", {
         provider,
         modelId,
+        role: "supervisor",
         scope,
         resetAt,
         resetKnown: ms !== null,

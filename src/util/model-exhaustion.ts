@@ -119,6 +119,17 @@ function parseAbsolute(msg: string, now: number): number | null {
       if (delta > 0) return delta;
     }
   }
+  // Claude bridge: "resets 8:40pm (Asia/Tbilisi)". Pi работает в той же локальной
+  // зоне, которую провайдер печатает в сообщении, поэтому собираем ближайшее такое время.
+  const clock = /resets?(?:\s+at)?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)\b/i.exec(msg);
+  if (clock?.[1] && clock[2] && clock[4]) {
+    let hour = parseInt(clock[1], 10) % 12;
+    if (clock[4].toLowerCase() === "pm") hour += 12;
+    const at = new Date(now);
+    at.setHours(hour, parseInt(clock[2], 10), parseInt(clock[3] ?? "0", 10), 0);
+    if (at.getTime() <= now) at.setDate(at.getDate() + 1);
+    return at.getTime() - now;
+  }
   return null;
 }
 
