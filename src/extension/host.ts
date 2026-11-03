@@ -79,6 +79,10 @@ type Binding = {
   saved: { tools: string[]; model: Model | undefined; thinking: ThinkingLevel };
   /** Этап, для которого уже применена модель роли (D38): не переключать на каждом ходу. */
   modelAppliedFor: string | null;
+  /** Фактически применённая stage-модель: нужна для снятия cooldown после успешного хода. */
+  appliedStageModel: { provider: string; modelId: string } | null;
+  /** Одноразовая forced canary stage-модели после technical wait или /teo continue. */
+  forcedStageProbe: { role: string; provider: string; modelId: string; forcedBy: "timer" | "continue" } | null;
   /** Таймер schedule_recheck живёт только пока открыта привязанная Pi-сессия. */
   waitTimer: ReturnType<typeof setTimeout> | null;
   /** Обновляет обратный отсчёт в нижнем status bar раз в секунду. */
@@ -88,6 +92,16 @@ type Binding = {
 };
 
 type StageView = { state: TaskState; policy: LoadedPolicy; stage: WorkStage; agent: AgentDef };
+type StageModelCandidate = {
+  entry: string;
+  model: Model;
+  thinking: ThinkingLevel | null;
+  cooldown: ReturnType<typeof defaultCooldownTracker.activeRecord>;
+};
+type HostModelExhaustion = {
+  provider: string;
+  modelId: string;
+};
 
 const SUPERVISOR_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const SUPERVISOR_SPINNER_MS = 120;
@@ -277,8 +291,9 @@ export class ExtensionHost {
     }
 
     const waiting = state.phase === "waiting" ? state.wait : null;
-    const forcedProbe = waiting?.targetPhase === "supervisor_pending";
-    const mode = waiting ? (forcedProbe ? "forced_model_probe" : "recheck") : state.phase === "decision_pending" ? "apply_decision" : "resume";
+    const forcedSupervisorProbe = waiting?.targetPhase === "supervisor_pending";
+    const forcedAgentProbe = waiting?.kind === "agent_model_cooldown" && waiting.modelCooldown;
+    const mode = waiting ? (forcedSupervisorProbe || forcedAgentProbe ? "forced_model_probe" : "recheck") : state.phase === "decision_pending" ? "apply_decision" : "resume";
     const fromPhase = state.phase;
     await b.store.tasks.commit(b.key, (s, c) => {
       c.emit("supervision.continued", "human", { sessionId: b.sessionId, fromPhase, mode });
@@ -288,11 +303,23 @@ export class ExtensionHost {
     if (waiting) {
       this.clearWaitTimer(b);
       b.notifiedWaitDecisionId = null;
-      if (forcedProbe) b.workflow.forceSupervisorModelProbe();
+      if (forcedSupervisorProbe) b.workflow.forceSupervisorModelProbe();
+      if (forcedAgentProbe) {
+        b.forcedStageProbe = { ...forcedAgentProbe, forcedBy: "continue" };
+        b.modelAppliedFor = null;
+      }
       await b.workflow.finishWaiting("skipped_by_human");
-      if (forcedProbe) {
+      if (forcedSupervisorProbe) {
         ctx.ui.notify(msg.extension.continueForcedProbe(b.key), "info");
         await this.resumeBoundWorkflow(b, ctx, true);
+        return;
+      }
+      if (forcedAgentProbe) {
+        ctx.ui.notify(`teo: ожидание лимита stage-модели прервано; сейчас выполняется принудительная canary ${forcedAgentProbe.provider}/${forcedAgentProbe.modelId}.`, "info");
+        this.pi.sendMessage(
+          { customType: "teo-model-probe", content: waiting.message, display: true },
+          { triggerTurn: true },
+        );
         return;
       }
       // Тот же путь, что у таймера перепроверки: роль этапа получает именно recheck-задание,
@@ -327,6 +354,7 @@ export class ExtensionHost {
     this.clearWaitTimer(b);
     await this.restoreUserEnvironment(b);
     b.modelAppliedFor = null;
+    b.appliedStageModel = null;
     ctx.ui.setStatus("teo", msg.extension.statusPaused(b.key));
     ctx.ui.notify(msg.extension.paused(b.key), "info");
   }
@@ -448,8 +476,68 @@ export class ExtensionHost {
       await b.workflow.settleOnly(event);
       return;
     }
-    await this.captureHostModelCooldown(b, current, event, ctx);
-    let result = await this.withSupervisorStatus(b, ctx, () => b.workflow.settleAndSupervise(event));
+    const exhausted = await this.captureHostModelCooldown(b, current, event, ctx);
+    let result: SupervisorResult;
+    if (exhausted) {
+      // Model quota — инфраструктурный recovery, не решение supervisor-а и не policy recheck.
+      await b.workflow.settleOnly(event);
+      const view = await this.requireStageView(b);
+      const selection = this.resolveStageModels(b, view, ctx);
+      const fallback = selection.find((candidate) => !candidate.cooldown) ?? null;
+      const cooldowns = selection.filter((candidate) => candidate.cooldown);
+      const nearest = cooldowns
+        .map((candidate) => {
+          const record = candidate.cooldown;
+          if (!record) return null;
+          const dueAt = record.resetKnown
+            ? record.exhaustedUntil
+            : (record.nextProbeAt ?? record.exhaustedUntil);
+          return { candidate, record, dueAt };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+        .sort((a, z) => a.dueAt - z.dueAt)[0] ?? null;
+
+      const recovered = await b.workflow.recoverAgentModelExhaustion({
+        role: view.agent.id,
+        fromProvider: exhausted.provider,
+        fromModelId: exhausted.modelId,
+        fallback: fallback ? { provider: fallback.model.provider, modelId: fallback.model.id, name: fallback.model.name } : null,
+        wait: !fallback && nearest ? {
+          provider: nearest.candidate.model.provider,
+          modelId: nearest.candidate.model.id,
+          dueAt: new Date(nearest.dueAt).toISOString(),
+          resetKnown: nearest.record.resetKnown === true,
+        } : null,
+      });
+      b.modelAppliedFor = null;
+      b.appliedStageModel = null;
+      if (recovered.phase === "agent_pending" && fallback) {
+        const text = `Модель ${exhausted.provider}/${exhausted.modelId} исчерпала лимит. Продолжай этап на резервной модели ${fallback.model.provider}/${fallback.model.id}.`;
+        await b.workflow.beginAgentTurn(text);
+        const running = await this.requireStageView(b);
+        await this.configureRole(b, running, ctx);
+        ctx.ui.notify(
+          msg.extension.modelFallback(view.agent.title, fallback.model.name, `лимит ${exhausted.provider}/${exhausted.modelId}`),
+          "warning",
+        );
+        return { entries: [customMessage(text)], continue: true };
+      }
+      if (recovered.phase === "waiting" && recovered.wait) {
+        ctx.ui.notify(
+          `teo: все доступные модели роли ${view.agent.id} находятся в cooldown. Техническая проверка ${recovered.wait.modelCooldown?.provider}/${recovered.wait.modelCooldown?.modelId} запланирована на ${recovered.wait.dueAt}; задача не заблокирована.`,
+          "warning",
+        );
+        await this.scheduleWaitTimer(b, ctx);
+        return { continue: false };
+      }
+      // Если chain не удалось разрешить вообще, сохраняем прежний supervisor flow.
+      result = await this.withSupervisorStatus(b, ctx, () => b.workflow.superviseAndApply());
+    } else {
+      if (event.outcome !== "error" && b.appliedStageModel) {
+        defaultCooldownTracker.recordSuccess(b.appliedStageModel.provider, b.appliedStageModel.modelId);
+      }
+      result = await this.withSupervisorStatus(b, ctx, () => b.workflow.settleAndSupervise(event));
+    }
 
     // ask_human может породить следующий supervisor-цикл прямо в том же boundary (D39).
     for (;;) {
@@ -481,10 +569,10 @@ export class ExtensionHost {
     state: TaskState,
     event: AgentBeforeSettleEvent,
     ctx: ExtensionContext,
-  ): Promise<void> {
-    if (event.outcome !== "error" || !ctx.model) return;
+  ): Promise<HostModelExhaustion | null> {
+    if (event.outcome !== "error" || !ctx.model) return null;
     const error = lastAssistantProviderError(event.context.llmMessages as unknown[]);
-    if (!error || !isModelExhaustedError(error)) return;
+    if (!error || !isModelExhaustedError(error)) return null;
     const now = b.app.clock.now().getTime();
     const scope = exhaustionScope(error);
     const duration = parseResetCooldownMs(error, now);
@@ -500,8 +588,10 @@ export class ExtensionHost {
       reason: error,
     });
     b.modelAppliedFor = null;
+    b.appliedStageModel = null;
     const until = new Date(record.exhaustedUntil).toISOString();
-    ctx.ui.notify(`teo: модель роли ${state.currentRun?.agentId ?? "agent"} ${ctx.model.provider}/${ctx.model.id} поставлена на cooldown до ${until}; следующий ход выберет fallback.`, "warning");
+    ctx.ui.notify(`teo: модель роли ${state.currentRun?.agentId ?? "agent"} ${ctx.model.provider}/${ctx.model.id} поставлена на cooldown до ${until}; Teo проверяет fallback-цепочку.`, "warning");
+    return { provider: ctx.model.provider, modelId: ctx.model.id };
   }
 
   /** Сообщение пользователя при привязанной задаче — подтверждение для guard humanResponse (D40). */
@@ -511,6 +601,17 @@ export class ExtensionHost {
     if (!b || event.source === "extension" || !text || text.startsWith("/")) return;
     b.lock.signal.throwIfAborted();
     const state = await b.store.tasks.load(b.key);
+    if (state.phase === "waiting" && state.wait?.kind === "agent_model_cooldown" && !state.hostSession?.paused) {
+      await b.store.tasks.appendDirect(b.key, "human.responded", "human", {
+        requestId: null,
+        answer: text,
+        selectedOption: null,
+        channel: "chat",
+      });
+      const remaining = formatWaitRemaining(new Date(state.wait.dueAt).getTime() - b.app.clock.now().getTime());
+      ctx.ui.notify(`teo: сообщение сохранено. Роль ${state.wait.modelCooldown?.role ?? "agent"} ждёт модель ещё ${remaining}; для немедленной canary используйте /teo continue.`, "info");
+      return { action: "handled" };
+    }
     if (state.phase === "waiting" && !state.hostSession?.paused) {
       this.clearWaitTimer(b);
       await b.workflow.waitingHumanMessage(text);
@@ -742,6 +843,8 @@ export class ExtensionHost {
       release: held.release,
       saved: { tools: this.pi.getActiveTools(), model: ctx.model, thinking: this.pi.getThinkingLevel() },
       modelAppliedFor: null,
+      appliedStageModel: null,
+      forcedStageProbe: null,
       waitTimer: null,
       waitStatusTimer: null,
       notifiedWaitDecisionId: null,
@@ -883,6 +986,7 @@ export class ExtensionHost {
     }
     await this.restoreUserEnvironment(b);
     b.modelAppliedFor = null;
+    b.appliedStageModel = null;
     ctx.ui.setStatus("teo", msg.extension.statusNext(b.key, view.stage.title));
     ctx.ui.setEditorText("/teo next");
     ctx.ui.notify(msg.extension.nextRequired(view.stage.title), "info");
@@ -901,7 +1005,12 @@ export class ExtensionHost {
       const render = () => {
         if (this.binding !== b) return;
         const remaining = formatWaitRemaining(new Date(dueAt).getTime() - b.app.clock.now().getTime());
-        if (state.wait?.targetPhase === "supervisor_pending") {
+        if (state.wait?.kind === "agent_model_cooldown" && state.wait.modelCooldown) {
+          ctx.ui.setStatus(
+            "teo",
+            `teo: ${b.key} · ⏳ ${state.wait.modelCooldown.role} ждёт ${state.wait.modelCooldown.provider}/${state.wait.modelCooldown.modelId} · осталось ${remaining}`,
+          );
+        } else if (state.wait?.targetPhase === "supervisor_pending") {
           // Если провайдер срок не назвал, dueAt — всего лишь момент следующей пробы.
           ctx.ui.setStatus(
             "teo",
@@ -940,14 +1049,25 @@ export class ExtensionHost {
       b.waitTimer = setTimeout(() => this.fireWaitTimer(b, ctx).catch((err) => ctx.ui.notify(errorText(b.app, err), "warning")), 1000);
       return;
     }
-    const { waitingFor, message, targetPhase } = state.wait;
+    const { waitingFor, message, targetPhase, kind, modelCooldown } = state.wait;
     this.clearWaitTimer(b);
+    if (kind === "agent_model_cooldown" && modelCooldown) {
+      b.forcedStageProbe = { ...modelCooldown, forcedBy: "timer" };
+      b.modelAppliedFor = null;
+    }
     await b.workflow.finishWaiting();
     if (targetPhase === "supervisor_pending") {
       await this.resumeBoundWorkflow(b, ctx, true);
       return;
     }
-    this.pi.sendMessage({ customType: "teo-recheck", content: msg.extension.recheckDue(waitingFor, message), display: true }, { triggerTurn: true });
+    this.pi.sendMessage(
+      {
+        customType: kind === "agent_model_cooldown" ? "teo-model-probe" : "teo-recheck",
+        content: kind === "agent_model_cooldown" ? message : msg.extension.recheckDue(waitingFor, message),
+        display: true,
+      },
+      { triggerTurn: true },
+    );
   }
 
   private clearWaitTimer(b: Binding): void {
@@ -1003,70 +1123,107 @@ export class ExtensionHost {
     ctx.ui.setStatus("teo", msg.extension.status(view.state.key, view.stage.title, view.agent.title, view.state.supervisor.cycle));
   }
 
-  /** Модель роли (D38, D46, D48): fallback-цепочка моделей; переключение только при смене. */
-  private async applyModel(b: Binding, view: StageView, ctx: ExtensionContext): Promise<void> {
-    const stageKey = `${view.state.stage}:${view.state.stageEntryEventId}`;
-    if (b.modelAppliedFor === stageKey) return;
-    b.modelAppliedFor = stageKey;
-
+  /** Разрешить stage model chain с учётом persistent cooldown и пользовательской default-модели. */
+  private resolveStageModels(b: Binding, view: StageView, ctx: ExtensionContext): StageModelCandidate[] {
     const chain = resolveModelChain({
       role: view.agent.id,
       configuredModel: view.agent.model,
       modelsConfig: b.store.modelsConfig,
     });
-
     const available = (ctx.scopedModels ?? []).map((s) => s.model);
     const now = b.app.clock.now().getTime();
+    const candidates: StageModelCandidate[] = [];
+    const seen = new Set<string>();
 
-    for (let i = 0; i < chain.length; i++) {
-      const entry = chain[i];
-      if (!entry) continue;
-      if (entry.toLowerCase() === "default") return; // Оставить модель пользователя
-
-      const parsedRef = parseModelRef(entry);
+    for (const entry of chain) {
       let targetModel: Model | undefined;
       let thinking: ThinkingLevel | null = null;
-
-      if (parsedRef?.kind === "explicit") {
-        targetModel = ctx.modelRegistry.find(parsedRef.provider, parsedRef.modelId);
-        thinking = parsedRef.thinking;
-      }
-      if (!targetModel) {
-        const matched = matchPiModel(entry, available);
-        if (matched) {
-          targetModel = ctx.modelRegistry.find(matched.model.provider, matched.model.id);
-          thinking = matched.thinking;
+      if (entry.toLowerCase() === "default") {
+        targetModel = b.saved.model;
+      } else {
+        const parsedRef = parseModelRef(entry);
+        if (parsedRef?.kind === "explicit") {
+          targetModel = ctx.modelRegistry.find(parsedRef.provider, parsedRef.modelId);
+          thinking = parsedRef.thinking;
+        }
+        if (!targetModel) {
+          const matched = matchPiModel(entry, available);
+          if (matched) {
+            targetModel = ctx.modelRegistry.find(matched.model.provider, matched.model.id);
+            thinking = matched.thinking;
+          }
         }
       }
+      if (!targetModel) continue;
+      const key = `${targetModel.provider.toLowerCase()}/${targetModel.id.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const forced = b.forcedStageProbe;
+      const forceThis = forced?.provider === targetModel.provider && forced.modelId === targetModel.id;
+      candidates.push({
+        entry,
+        model: targetModel,
+        thinking,
+        cooldown: forceThis ? null : defaultCooldownTracker.activeRecord(targetModel.provider, targetModel.id, now),
+      });
+    }
 
-      if (!targetModel) {
-        if (i === 0 && chain.length === 1) {
-          ctx.ui.notify(msg.extension.modelMissing(entry, view.agent.title), "warning");
-        }
-        continue;
+    const forced = b.forcedStageProbe;
+    if (!forced) return candidates;
+    const index = candidates.findIndex((candidate) => candidate.model.provider === forced.provider && candidate.model.id === forced.modelId);
+    if (index <= 0) return candidates;
+    const [candidate] = candidates.splice(index, 1);
+    if (candidate) candidates.unshift(candidate);
+    return candidates;
+  }
+
+  /** Модель роли (D38, D46, D48): fallback-цепочка моделей; переключение только при смене. */
+  private async applyModel(b: Binding, view: StageView, ctx: ExtensionContext): Promise<void> {
+    const stageKey = `${view.state.stage}:${view.state.stageEntryEventId}`;
+    if (b.modelAppliedFor === stageKey && !b.forcedStageProbe) return;
+    b.modelAppliedFor = stageKey;
+
+    const candidates = this.resolveStageModels(b, view, ctx);
+    if (candidates.length === 0) {
+      const chain = resolveModelChain({ role: view.agent.id, configuredModel: view.agent.model, modelsConfig: b.store.modelsConfig });
+      if (chain.length === 1 && chain[0]?.toLowerCase() !== "default") {
+        ctx.ui.notify(msg.extension.modelMissing(chain[0] ?? "?", view.agent.title), "warning");
       }
-
-      if (defaultCooldownTracker.isExhausted(targetModel.provider, targetModel.id, now)) {
-        continue;
-      }
-
+    }
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i];
+      if (!candidate || candidate.cooldown) continue;
+      const targetModel = candidate.model;
       if (ctx.model?.provider !== targetModel.provider || ctx.model?.id !== targetModel.id) {
         const changed = await this.pi.setModel(targetModel);
         if (!changed) {
-          if (i === 0 && chain.length === 1) {
-            ctx.ui.notify(msg.extension.modelUnavailable(entry, view.agent.title), "warning");
+          if (i === 0 && candidates.length === 1) {
+            ctx.ui.notify(msg.extension.modelUnavailable(candidate.entry, view.agent.title), "warning");
           }
           continue;
         }
-        if (i > 0) {
-          ctx.ui.notify(msg.extension.modelFallback(view.agent.title, targetModel.name, "резервная модель роли"), "info");
+        if (i > 0 || b.forcedStageProbe) {
+          ctx.ui.notify(msg.extension.modelFallback(view.agent.title, targetModel.name, b.forcedStageProbe ? "принудительная canary после cooldown" : "резервная модель роли"), "info");
         }
       }
 
-      const effectiveThinking = view.agent.thinking ?? thinking;
+      const effectiveThinking = view.agent.thinking ?? candidate.thinking;
       if (effectiveThinking) this.pi.setThinkingLevel(effectiveThinking);
+      b.appliedStageModel = { provider: targetModel.provider, modelId: targetModel.id };
+      if (b.forcedStageProbe) {
+        await b.workflow.recordAgentModelProbe({
+          role: b.forcedStageProbe.role,
+          provider: targetModel.provider,
+          modelId: targetModel.id,
+          forcedBy: b.forcedStageProbe.forcedBy,
+        });
+        b.forcedStageProbe = null;
+      }
       return;
     }
+    // Не позволяем forced-флагу протечь в следующий независимый цикл.
+    b.forcedStageProbe = null;
+    b.appliedStageModel = null;
   }
 
   private async withSupervisorStatus<T>(b: Binding, ctx: ExtensionContext, work: () => Promise<T>): Promise<T> {

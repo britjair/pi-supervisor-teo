@@ -82,6 +82,8 @@ export const taskStateSchema = z.object({
     .nullable(),
   wait: z
     .object({
+      kind: z.enum(["policy_recheck", "supervisor_model_cooldown", "agent_model_cooldown"]).optional(),
+      modelCooldown: z.object({ role: id, provider: id, modelId: id }).nullable().optional(),
       decisionId: id,
       number: z.int().min(1),
       waitingFor: z.string(),

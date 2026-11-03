@@ -870,6 +870,10 @@ export function eventSummary(e: TaskEvent): string {
       return `восстановление: ${e.payload.action}`;
     case "model.exhausted":
       return `лимит модели ${e.payload.provider}/${e.payload.modelId} исчерпан (сброс в ${e.payload.resetAt})`;
+    case "agent.model_wait_scheduled":
+      return `роль ${e.payload.role} ждёт ${e.payload.provider}/${e.payload.modelId} до ${e.payload.dueAt}`;
+    case "agent.model_probe_started":
+      return `роль ${e.payload.role}: forced canary ${e.payload.provider}/${e.payload.modelId} (${e.payload.forcedBy})`;
     case "model.fallback":
       return `роль ${e.payload.role}: переключение с ${e.payload.fromModel} на ${e.payload.toModel} (${e.payload.reason})`;
     case "model.unusable":

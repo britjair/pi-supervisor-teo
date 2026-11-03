@@ -86,6 +86,14 @@ export type SupervisorTrigger = {
 };
 
 export type WaitState = {
+  /** Отсутствует в старых state: такой wait трактуется по targetPhase. */
+  kind?: "policy_recheck" | "supervisor_model_cooldown" | "agent_model_cooldown" | undefined;
+  /** Для agent_model_cooldown — конкретная модель для canary после таймера. */
+  modelCooldown?: {
+    role: string;
+    provider: string;
+    modelId: string;
+  } | null | undefined;
   decisionId: string;
   number: number;
   waitingFor: string;

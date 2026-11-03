@@ -138,7 +138,8 @@ $ pi                                   # обычная сессия Pi в пр�
 | Состояние | Действие | `mode` в `supervision.continued` |
 |---|---|---|
 | `waiting`, обычная перепроверка | `wait.finished { skipped_by_human }`, роль этапа сразу получает recheck-задание (тот же путь, что у таймера) | `recheck` |
-| `waiting`, ожидание лимита (`targetPhase: supervisor_pending`) | supervisor запускается немедленно и делает **одну** принудительную canary-проверку первой cooldown-модели цепочки, игнорируя `nextProbeAt` | `forced_model_probe` |
+| `waiting`, ожидание лимита supervisor-а (`targetPhase: supervisor_pending`) | supervisor запускается немедленно и делает **одну** принудительную canary-проверку первой cooldown-модели цепочки, игнорируя `nextProbeAt` | `forced_model_probe` |
+| `waiting`, ожидание stage-модели (`kind: agent_model_cooldown`) | роль этапа немедленно запускается на выбранной cooldown-модели как forced canary | `forced_model_probe` |
 | пауза | `supervision.resumed`, дальше по фактической фазе (включая два случая выше) | по фазе |
 | `agent_pending` / `supervisor_pending` | штатное продолжение фазы | `resume` |
 | `decision_pending` | применяется уже принятое решение, новый цикл не запускается | `apply_decision` |
