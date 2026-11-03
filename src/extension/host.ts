@@ -243,6 +243,77 @@ export class ExtensionHost {
     if (b) await this.resumeBoundWorkflow(b, ctx, true);
   }
 
+  /**
+   * /teo continue: не ждать таймер и сразу вернуть задаче цикл управления.
+   * Обычное ожидание → роль этапа заново проверяет внешние факты; ожидание лимита →
+   * supervisor делает одну принудительную canary-проверку cooldown. Активный ход не прерывается.
+   */
+  async continueNow(ctx: ExtensionContext): Promise<void> {
+    const b = this.binding;
+    if (!b) return ctx.ui.notify(msg.extension.notBound, "info");
+    b.lock.signal.throwIfAborted();
+    let state = await b.store.tasks.load(b.key);
+
+    if (isFinished(state) || isHalted(state)) {
+      await this.finishResult(b, ctx, state);
+      return;
+    }
+    if (state.phase === "agent_running") return ctx.ui.notify(msg.extension.continueBusyAgent(b.key), "info");
+    if (state.phase === "supervisor_running") {
+      const activity = b.workflow.supervisorActivity();
+      const elapsed = activity.startedAtMs === null ? null : Math.max(0, Math.round((b.app.clock.now().getTime() - activity.startedAtMs) / 1000));
+      const details = [activity.model, elapsed === null ? null : `${elapsed} с`].filter(Boolean).join(", ") || null;
+      return ctx.ui.notify(msg.extension.continueBusySupervisor(b.key, details), "info");
+    }
+    if (state.phase === "human_pending") return ctx.ui.notify(msg.extension.continueNeedsAnswer(b.key), "info");
+
+    // Пауза снимается здесь, а не через resumePaused: продолжение ниже само учитывает waiting.
+    if (state.hostSession?.paused) {
+      state = await b.store.tasks.commit(b.key, (s, c) => {
+        c.emit("supervision.resumed", "human", { sessionId: b.sessionId });
+        return { ...s, hostSession: s.hostSession ? { ...s.hostSession, paused: false } : null };
+      }, { expectedVersion: state.version });
+      ctx.ui.notify(msg.extension.resumed(b.key), "info");
+    }
+
+    const waiting = state.phase === "waiting" ? state.wait : null;
+    const forcedProbe = waiting?.targetPhase === "supervisor_pending";
+    const mode = waiting ? (forcedProbe ? "forced_model_probe" : "recheck") : state.phase === "decision_pending" ? "apply_decision" : "resume";
+    const fromPhase = state.phase;
+    await b.store.tasks.commit(b.key, (s, c) => {
+      c.emit("supervision.continued", "human", { sessionId: b.sessionId, fromPhase, mode });
+      return s;
+    }, { expectedVersion: state.version });
+
+    if (waiting) {
+      this.clearWaitTimer(b);
+      b.notifiedWaitDecisionId = null;
+      if (forcedProbe) b.workflow.forceSupervisorModelProbe();
+      await b.workflow.finishWaiting("skipped_by_human");
+      if (forcedProbe) {
+        ctx.ui.notify(msg.extension.continueForcedProbe(b.key), "info");
+        await this.resumeBoundWorkflow(b, ctx, true);
+        return;
+      }
+      // Тот же путь, что у таймера перепроверки: роль этапа получает именно recheck-задание,
+      // а не обычный kickoff этапа.
+      ctx.ui.notify(msg.extension.continueRecheck(b.key, waiting.waitingFor), "info");
+      const current = await b.store.tasks.load(b.key);
+      if (current.phase !== "agent_pending") {
+        await this.resumeBoundWorkflow(b, ctx, true);
+        return;
+      }
+      this.pi.sendMessage(
+        { customType: "teo-recheck", content: msg.extension.recheckDue(waiting.waitingFor, waiting.message), display: true },
+        { triggerTurn: true },
+      );
+      return;
+    }
+
+    ctx.ui.notify(msg.extension.continueResumed(b.key), "info");
+    await this.resumeBoundWorkflow(b, ctx, true);
+  }
+
   /** /teo pause: оставить binding и lock, но временно вернуть обычный режим Pi. */
   async pause(ctx: ExtensionContext): Promise<void> {
     const b = this.binding;

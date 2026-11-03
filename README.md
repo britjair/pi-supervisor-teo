@@ -115,6 +115,7 @@ When the extension is loaded, the following commands are available inside Pi:
 /teo goal <goal>
 /teo sessions
 /teo resume [KEY or session number]
+/teo continue
 /teo next
 /teo pause
 /teo recover KEY

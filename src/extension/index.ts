@@ -8,7 +8,7 @@ import { msg } from "../ui/messages.js";
 import { ExtensionHost } from "./host.js";
 import { errorText, extensionAppContext, runCaptured } from "./run-command.js";
 
-const READY = ["start", "goal", "resume", "sessions", "list", "next", "pause", "recover", "stop", "status", "history", "help"] as const;
+const READY = ["start", "goal", "resume", "continue", "sessions", "list", "next", "pause", "recover", "stop", "status", "history", "help"] as const;
 
 export function parseArgs(args: string): { sub: string; rest: string[]; tail: string } {
   const trimmed = args.trim();
@@ -50,6 +50,8 @@ async function handle(host: ExtensionHost, args: string, ctx: ExtensionCommandCo
       return host.sessions(ctx);
     case "next":
       return host.next(ctx);
+    case "continue":
+      return host.continueNow(ctx);
     case "pause":
       return host.pause(ctx);
     case "recover":

@@ -309,11 +309,11 @@ export class ModelCooldownTracker {
   }
 
   /** Забронировать canary до запуска запроса, чтобы задачи одного процесса не дублировали его. */
-  claimProbe(record: CooldownRecord, now = systemClock.now().getTime()): boolean {
+  claimProbe(record: CooldownRecord, now = systemClock.now().getTime(), force = false): boolean {
     this.ensureLoaded();
     const key = recordKey(record);
     const current = this.records.get(key);
-    if (!current || now >= current.exhaustedUntil || !this.canProbe(current, now)) return false;
+    if (!current || now >= current.exhaustedUntil || (!force && !this.canProbe(current, now))) return false;
     current.lastProbeAt = now;
     current.nextProbeAt = Math.min(current.exhaustedUntil, now + (this.isResetKnown(current) ? 60 * 60_000 : (PROBE_SCHEDULE_MS[Math.min(current.attempt, PROBE_SCHEDULE_MS.length) - 1] ?? 15 * 60_000)));
     this.records.set(key, current);

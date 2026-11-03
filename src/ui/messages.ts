@@ -208,6 +208,7 @@ export const msg = {
       "  /teo sessions        просмотр всех сессий с номерами и выбор для возобновления",
       "  /teo resume [KEY/№]  продолжить задачу (по номеру, ключу или из списка)",
       "  /teo next            перейти в новую Pi-сессию, когда этого требует этап",
+      "  /teo continue        не ждать таймер: сразу перепроверить ситуацию и продолжить задачу",
       "  /teo pause           временно отключить роль и проверки, сохранив привязку",
       "  /teo recover KEY     восстановить оборванный ход",
       "  /teo stop            отвязать задачу от сессии; продолжить: /teo resume KEY или teo resume KEY",
@@ -230,6 +231,16 @@ export const msg = {
     alreadyPaused: (key: string) => `Проверки задачи ${key} уже на паузе.`,
     paused: (key: string) => `teo: задача ${key} на паузе; обычная сессия Pi доступна без роли и report-инструментов. Продолжить: /teo resume ${key}.`,
     resumed: (key: string) => `teo: проверки задачи ${key} продолжены.`,
+    continueRecheck: (key: string, waitingFor: string) =>
+      `teo: ожидание задачи ${key} прервано досрочно. Сейчас роль этапа заново проверит: ${waitingFor}`,
+    continueForcedProbe: (key: string) =>
+      `teo: ожидание лимита задачи ${key} прервано. Supervisor сразу сделает принудительный запрос к модели в cooldown.`,
+    continueResumed: (key: string) => `teo: задача ${key} продолжена с текущей фазы.`,
+    continueBusyAgent: (key: string) => `teo: агент задачи ${key} сейчас работает — цикл уже идёт, повторный запуск не нужен.`,
+    continueBusySupervisor: (key: string, details: string | null) =>
+      `teo: supervisor задачи ${key} уже проверяет${details ? ` (${details})` : ""} — ждём его решения.`,
+    continueNeedsAnswer: (key: string) =>
+      `teo: задача ${key} ждёт вашего ответа на вопрос supervisor-а. Ответьте на вопрос, подменить его командой нельзя.`,
     notBound: "Сессия не ведёт задачу teo.",
     finished: (key: string) => `Задача ${key} завершена: вести нечего.`,
     halted: (key: string, reason: string) => `Задача ${key} остановлена (${reason}). Разберите её в терминале: teo resume ${key} или teo recover ${key}.`,
@@ -847,6 +858,8 @@ export function eventSummary(e: TaskEvent): string {
       return "проверки поставлены на паузу";
     case "supervision.resumed":
       return "проверки продолжены";
+    case "supervision.continued":
+      return `досрочное продолжение из фазы ${e.payload.fromPhase} (${e.payload.mode})`;
     case "wait.scheduled":
       return `ожидание ${e.payload.number}/${e.payload.maxCount} до ${e.payload.dueAt}: ${clip(e.payload.waitingFor)}`;
     case "wait.finished":

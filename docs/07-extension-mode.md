@@ -120,16 +120,35 @@ $ pi                                   # обычная сессия Pi в пр�
 | `transition_stage`, этап `userSession: same` (по умолчанию) | баннер перехода + передача (handoff) с явным «предыдущая роль завершена» + `continue: true`: роль нового этапа начинает сама (критерий 13) |
 | `transition_stage`, этап `userSession: new` | баннер, `ctx.ui.setEditorText("/teo next")` и подсказка «Enter — начать этап в новой сессии». `/teo next` → `ctx.newSession({ parentSession })` и initial prompt этапа |
 | `ask_human` | нативный `ctx.ui.select` (есть варианты) или `ctx.ui.editor` (свободный ответ) прямо в `agent_before_settle` (D39); ответ → `human.responded`, цикл supervisor-а продолжается |
-| `schedule_recheck` | статус «ожидание до 15:40». Таймер расширения в срок отправляет prompt перепроверки, если сессия свободна. Если Pi закрыт, продолжит `teo resume` |
+| `schedule_recheck` | статус «ожидание до 15:40». Таймер расширения в срок отправляет prompt перепроверки, если сессия свободна. Если Pi закрыт, продолжит `teo resume`. Досрочно — `/teo continue` (§4.7) |
 | `block_task` / `cancel_task` / терминальный этап | уведомление и виджет с итогом; supervision выключается, lock освобождается |
 
 Новое поле Policy у этапа: `userSession: same | new`, по умолчанию `same`. В CLI-режиме оно игнорируется. Существующее `session: fresh | reuse` по-прежнему управляет сессиями агентов в CLI.
 
 ### 4.5. Команды `/teo`
 
-`/teo` (меню), `/teo start [KEY]`, `/teo resume KEY`, `/teo goal <цель>`, `/teo next`, `/teo status`, `/teo pause`, `/teo stop`, `/teo recover KEY`.
+`/teo` (меню), `/teo start [KEY]`, `/teo resume KEY`, `/teo goal <цель>`, `/teo continue`, `/teo next`, `/teo status`, `/teo pause`, `/teo stop`, `/teo recover KEY`.
 
 `status`, `history` и `cancel` переиспользуют тексты CLI и выводятся через `ctx.ui.notify`/виджет.
+
+### 4.7. `/teo continue`: досрочный возврат цикла управления
+
+Нужна, когда пользователь видит изменение раньше таймера Teo. Только в Pi: CLI-команды нет.
+
+| Состояние | Действие | `mode` в `supervision.continued` |
+|---|---|---|
+| `waiting`, обычная перепроверка | `wait.finished { skipped_by_human }`, роль этапа сразу получает recheck-задание (тот же путь, что у таймера) | `recheck` |
+| `waiting`, ожидание лимита (`targetPhase: supervisor_pending`) | supervisor запускается немедленно и делает **одну** принудительную canary-проверку первой cooldown-модели цепочки, игнорируя `nextProbeAt` | `forced_model_probe` |
+| пауза | `supervision.resumed`, дальше по фактической фазе (включая два случая выше) | по фазе |
+| `agent_pending` / `supervisor_pending` | штатное продолжение фазы | `resume` |
+| `decision_pending` | применяется уже принятое решение, новый цикл не запускается | `apply_decision` |
+| `human_pending` | команда не подменяет ответ: вопрос остаётся открытым | — |
+| `agent_running` / `supervisor_running` | активный ход не прерывается и не дублируется | — |
+| terminal / cancelled / blocked | выводится итог задачи | — |
+
+Принудительная проверка — не ручной `teo models reset`: запись cooldown снимается только после
+реального успешного ответа модели (`recordSuccess`). Повторный лимит обновляет cooldown, и флаг
+принуждения потребляется ровно один раз, чтобы цикл не долбился в исчерпанную модель.
 
 ### 4.6. Пакет и установка
 
