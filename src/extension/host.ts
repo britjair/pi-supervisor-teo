@@ -82,6 +82,8 @@ type Binding = {
   waitTimer: ReturnType<typeof setTimeout> | null;
   /** Обновляет обратный отсчёт в нижнем status bar раз в секунду. */
   waitStatusTimer: ReturnType<typeof setInterval> | null;
+  /** Не повторять подробное уведомление одного и того же ожидания. */
+  notifiedWaitDecisionId: string | null;
 };
 
 type StageView = { state: TaskState; policy: LoadedPolicy; stage: WorkStage; agent: AgentDef };
@@ -640,6 +642,7 @@ export class ExtensionHost {
       modelAppliedFor: null,
       waitTimer: null,
       waitStatusTimer: null,
+      notifiedWaitDecisionId: null,
     };
     if (!opts.auto) this.pi.appendEntry<BindingEntry>(BINDING_ENTRY, { key, projectRoot: store.layout.projectRoot });
 
@@ -789,6 +792,10 @@ export class ExtensionHost {
       const state = await b.store.tasks.load(b.key);
       if (this.binding !== b || state.phase !== "waiting" || !state.wait || state.hostSession?.paused) return;
       const dueAt = state.wait.dueAt;
+      if (state.wait.targetPhase === "supervisor_pending" && b.notifiedWaitDecisionId !== state.wait.decisionId) {
+        b.notifiedWaitDecisionId = state.wait.decisionId;
+        ctx.ui.notify(state.wait.message, "warning");
+      }
       const render = () => {
         if (this.binding !== b) return;
         const remaining = formatWaitRemaining(new Date(dueAt).getTime() - b.app.clock.now().getTime());
@@ -796,9 +803,11 @@ export class ExtensionHost {
           // Если провайдер срок не назвал, dueAt — всего лишь момент следующей пробы.
           ctx.ui.setStatus(
             "teo",
-            state.wait.resetKnown
-              ? msg.extension.modelsExhaustedWaiting(b.key, dueAt, remaining)
-              : msg.extension.modelsExhaustedProbe(b.key, remaining),
+            state.wait.waitingFor === "доступную модель supervisor-а"
+              ? msg.extension.modelsUnavailableProbe(b.key, remaining)
+              : state.wait.resetKnown
+                ? msg.extension.modelsExhaustedWaiting(b.key, dueAt, remaining)
+                : msg.extension.modelsExhaustedProbe(b.key, remaining),
           );
         } else {
           ctx.ui.setStatus("teo", msg.extension.waitingUntil(b.key, dueAt, remaining));
@@ -963,7 +972,7 @@ export class ExtensionHost {
     const cycle = state.phase === "decision_pending" ? state.supervisor.cycle : state.supervisor.cycle + 1;
     let index = 0;
     const render = () => {
-      if (this.binding === b) ctx.ui.setStatus("teo", msg.extension.supervisorChecking(b.key, cycle, SUPERVISOR_SPINNER[index] ?? "⠋"));
+      if (this.binding === b) ctx.ui.setStatus("teo", msg.extension.supervisorChecking(b.key, cycle, SUPERVISOR_SPINNER[index] ?? "⠋", b.workflow.supervisorModel()));
       index = (index + 1) % SUPERVISOR_SPINNER.length;
     };
     render();

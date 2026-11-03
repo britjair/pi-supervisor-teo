@@ -166,6 +166,14 @@ export type CooldownRecord = {
   attempt: number;
   reason: string;
   recordedAt: number;
+  /** Провайдер сообщил срок сброса; старые записи могут не содержать поле. */
+  resetKnown?: boolean;
+  /** Источник/название окна лимита без секретов. */
+  resetDetail?: string | null;
+  /** Последняя контролируемая проверка до срока сброса. */
+  lastProbeAt?: number | null;
+  /** Не пробовать эту запись раньше указанного времени. */
+  nextProbeAt?: number | null;
 };
 
 /** Хранилище cooldown-ов между запусками процесса. */
@@ -217,7 +225,7 @@ export class ModelCooldownTracker {
     durationMs?: number | null,
     reason = "лимит исчерпан",
     now = systemClock.now().getTime(),
-    opts: { scope?: CooldownScope } = {},
+    opts: { scope?: CooldownScope; resetDetail?: string | null } = {},
   ): CooldownRecord {
     this.ensureLoaded();
     const scope = opts.scope ?? "model";
@@ -227,13 +235,18 @@ export class ModelCooldownTracker {
     const attempt = known ? 1 : Math.min((previous?.attempt ?? 0) + 1, PROBE_SCHEDULE_MS.length);
     const step = PROBE_SCHEDULE_MS[Math.min(attempt, PROBE_SCHEDULE_MS.length) - 1] ?? PROBE_SCHEDULE_MS[0] ?? 0;
     const cooldown = known ? (durationMs as number) : step;
+    const exhaustedUntil = now + cooldown;
     const record: CooldownRecord = {
       provider,
       modelId: scope === "provider" ? null : modelId,
-      exhaustedUntil: now + cooldown,
+      exhaustedUntil,
       attempt,
       reason,
       recordedAt: now,
+      resetKnown: known,
+      resetDetail: known ? (opts.resetDetail ?? null) : null,
+      lastProbeAt: previous?.lastProbeAt ?? null,
+      nextProbeAt: known ? Math.min(exhaustedUntil, now + 60 * 60_000) : exhaustedUntil,
     };
     this.records.set(key, record);
     this.flush(now);
@@ -263,6 +276,38 @@ export class ModelCooldownTracker {
       if (record && now < record.exhaustedUntil) return record;
     }
     return null;
+  }
+
+  /** Семантика старой записи: отличаем точный срок от шага графика по её длительности. */
+  isResetKnown(record: CooldownRecord): boolean {
+    if (record.resetKnown !== undefined) return record.resetKnown;
+    const step = PROBE_SCHEDULE_MS[Math.min(Math.max(record.attempt, 1), PROBE_SCHEDULE_MS.length) - 1] ?? 0;
+    return Math.abs(record.exhaustedUntil - record.recordedAt - step) > 1000;
+  }
+
+  /** Следующий момент, когда разрешена canary-проверка активной записи. */
+  probeDueAt(record: CooldownRecord): number {
+    if (record.nextProbeAt !== undefined && record.nextProbeAt !== null) return record.nextProbeAt;
+    return this.isResetKnown(record)
+      ? Math.min(record.exhaustedUntil, record.recordedAt + 60 * 60_000)
+      : record.exhaustedUntil;
+  }
+
+  canProbe(record: CooldownRecord, now = systemClock.now().getTime()): boolean {
+    return now >= this.probeDueAt(record);
+  }
+
+  /** Забронировать canary до запуска запроса, чтобы задачи одного процесса не дублировали его. */
+  claimProbe(record: CooldownRecord, now = systemClock.now().getTime()): boolean {
+    this.ensureLoaded();
+    const key = recordKey(record);
+    const current = this.records.get(key);
+    if (!current || now >= current.exhaustedUntil || !this.canProbe(current, now)) return false;
+    current.lastProbeAt = now;
+    current.nextProbeAt = Math.min(current.exhaustedUntil, now + (this.isResetKnown(current) ? 60 * 60_000 : (PROBE_SCHEDULE_MS[Math.min(current.attempt, PROBE_SCHEDULE_MS.length) - 1] ?? 15 * 60_000)));
+    this.records.set(key, current);
+    this.flush(now);
+    return true;
   }
 
   private remaining(provider: string, modelId: string, now: number): number {

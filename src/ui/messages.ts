@@ -246,6 +246,8 @@ export const msg = {
     /** Срок сброса неизвестен: показываем пробу, а не выдуманный обратный отсчёт */
     modelsExhaustedProbe: (key: string, remaining: string) =>
       `teo: ${key} · ⏳ ⚠ лимит моделей исчерпан · срок сброса не сообщён · проба через ${remaining}`,
+    modelsUnavailableProbe: (key: string, remaining: string) =>
+      `teo: ${key} · ⏳ ⚠ нет доступной модели supervisor-а · подробности в уведомлении · проверка через ${remaining}`,
     humanMessageSavedWaiting: (waitingFor: string, remaining: string) =>
       `teo: ответ зафиксирован в задаче. Ожидание: ${waitingFor} (осталось ${remaining}). Работа продолжится автоматически.`,
     humanMessageChatNotice: (text: string, waitingFor: string, remaining: string) =>
@@ -254,7 +256,8 @@ export const msg = {
     status: (key: string, stage: string, agent: string, cycle: number) => `teo: ${key} · ${stage} · ${agent} · цикл ${cycle}`,
     statusPaused: (key: string) => `teo: ${key} · пауза`,
     statusNext: (key: string, stage: string) => `teo: ${key} · ${stage} · нужна новая сессия`,
-    supervisorChecking: (key: string, cycle: number, frame: string) => `teo: ${key} · ${frame} supervisor проверяет · цикл ${cycle}`,
+    supervisorChecking: (key: string, cycle: number, frame: string, model?: string | null) =>
+      `teo: ${key} · ${frame} supervisor проверяет${model ? ` · ${model}` : ""} · цикл ${cycle}`,
     waitingHuman: (key: string) => `teo: ${key} · ожидается ответ пользователя`,
     waitingUntil: (key: string, dueAt: string, remaining: string) => `teo: ${key} · ⏳ ожидание до ${dueAt} · осталось ${remaining}`,
     questionDeferred: "Вопрос supervisor-а остался открытым. Продолжение будет доступно через /teo resume после восстановления диалога.",
@@ -822,6 +825,8 @@ export function eventSummary(e: TaskEvent): string {
       return `ошибка: ${clip(e.payload.error)}`;
     case "supervisor.started":
       return `цикл ${e.payload.cycle}${e.payload.trigger ? ` (${e.payload.trigger.kind})` : ""}`;
+    case "supervisor.models_checked":
+      return e.payload.checks.map((c) => `${c.ref}${c.resolvedModel && c.resolvedModel !== c.ref ? ` → ${c.resolvedModel}` : ""}: ${c.status}`).join("; ");
     case "supervisor.decision":
       return `решение ${e.payload.action}`;
     case "supervisor.note":
@@ -854,6 +859,8 @@ export function eventSummary(e: TaskEvent): string {
       return `лимит модели ${e.payload.provider}/${e.payload.modelId} исчерпан (сброс в ${e.payload.resetAt})`;
     case "model.fallback":
       return `роль ${e.payload.role}: переключение с ${e.payload.fromModel} на ${e.payload.toModel} (${e.payload.reason})`;
+    case "model.unusable":
+      return `модель ${e.payload.model} не обслуживает ${e.payload.role}: ${clip(e.payload.reason)}`;
     default:
       return "";
   }

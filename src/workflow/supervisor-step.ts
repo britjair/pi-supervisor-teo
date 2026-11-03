@@ -8,14 +8,13 @@ import { supervisorSessionSpec } from "../agents/session-spec.js";
 import type { TaskEvent } from "../domain/events.js";
 import { getStage } from "../domain/policy.js";
 import { haltedState, type TaskState } from "../domain/task-state.js";
-import { argsPreview } from "../util/redact.js";
+import { argsPreview, redactString, truncate } from "../util/redact.js";
 import { resolveModelChain } from "../policy/models-config.js";
 import {
   defaultCooldownTracker,
   exhaustionScope,
   isModelExhaustedError,
   parseResetCooldownMs,
-  PROBE_SCHEDULE_MS,
 } from "../util/model-exhaustion.js";
 import type { EngineCore } from "./context.js";
 import type { ExitOutcome } from "./outcome.js";
@@ -38,10 +37,25 @@ function supervisorModelRef(core: EngineCore, refString?: string): ModelRef {
   return { ref: refString ?? sv.model, thinking: sv.thinking, extensions: sv.piResources.extensions === "inherit" };
 }
 
+export type SupervisorModelCheck = {
+  ref: string;
+  resolvedModel: string | null;
+  status: "selected" | "cooldown" | "unavailable" | "incompatible" | "unusable" | "canary";
+  reason: string;
+  cooldown?: {
+    scope: "provider" | "model";
+    resetAt: string;
+    remainingMs: number;
+    resetKnown: boolean;
+    resetDetail: string | null;
+    nextProbeAt: string;
+  };
+};
+
 type ModelSelection =
-  | { kind: "selected"; model: ResolvedModel; index: number; ref: string }
-  | { kind: "exhausted"; earliestResetMs: number }
-  | { kind: "unavailable"; error: string };
+  | { kind: "selected"; model: ResolvedModel; index: number; ref: string; checks: SupervisorModelCheck[]; canary: boolean }
+  | { kind: "exhausted"; earliestResetMs: number; resetKnown: boolean; resetDetail: string | null; checks: SupervisorModelCheck[] }
+  | { kind: "unavailable"; error: string; checks: SupervisorModelCheck[] };
 
 /**
  * Модели, которые в этом процессе не смогли обслужить supervisor не из-за лимита.
@@ -59,10 +73,10 @@ export function resetUnusableSupervisorModels(): void {
 }
 
 async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise<ModelSelection> {
-  let hasExhausted = false;
   let lastError = "Нет доступных моделей для supervisor-а";
   const now = core.clock.now().getTime();
-  const checkedModels: Array<{ provider: string; modelId: string }> = [];
+  const checks: SupervisorModelCheck[] = [];
+  const cooldownCandidates: Array<{ model: ResolvedModel; index: number; ref: string; provider: string; modelId: string; record: NonNullable<ReturnType<typeof defaultCooldownTracker.activeRecord>> }> = [];
 
   for (let i = 0; i < chain.length; i++) {
     const refStr = chain[i];
@@ -70,42 +84,103 @@ async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise
     try {
       const resolved = await core.runtime.resolveModel(supervisorModelRef(core, refStr));
       const [provider = "unknown", modelId = "unknown"] = resolved.id.split("/");
-      // Провайдерам-мостам нужен свой хук в сессии, а у supervisor-а расширений нет: пробовать нечего.
       if (!servesExtensionlessSession(provider)) {
         lastError = `${resolved.id} не обслуживает сессию supervisor-а без расширений Pi`;
+        checks.push({ ref: refStr, resolvedModel: resolved.id, status: "incompatible", reason: lastError });
         continue;
       }
       const unusable = unusableForSupervisor.get(resolved.id);
       if (unusable) {
         lastError = `${resolved.id} не обслуживает supervisor: ${unusable}`;
+        checks.push({ ref: refStr, resolvedModel: resolved.id, status: "unusable", reason: truncate(redactString(lastError), 300) });
         continue;
       }
-      checkedModels.push({ provider, modelId });
-      if (defaultCooldownTracker.isExhausted(provider, modelId, now)) {
-        hasExhausted = true;
+      const record = defaultCooldownTracker.activeRecord(provider, modelId, now);
+      if (record) {
+        const resetKnown = defaultCooldownTracker.isResetKnown(record);
+        const nextProbeAt = defaultCooldownTracker.probeDueAt(record);
+        const scope = record.modelId === null ? "provider" : "model";
+        checks.push({
+          ref: refStr,
+          resolvedModel: resolved.id,
+          status: "cooldown",
+          reason: `${scope === "provider" ? "cooldown провайдера" : "cooldown модели"}: ${truncate(redactString(record.reason), 200)}`,
+          cooldown: {
+            scope,
+            resetAt: new Date(record.exhaustedUntil).toISOString(),
+            remainingMs: Math.max(0, record.exhaustedUntil - now),
+            resetKnown,
+            resetDetail: record.resetDetail ?? null,
+            nextProbeAt: new Date(nextProbeAt).toISOString(),
+          },
+        });
+        cooldownCandidates.push({ model: resolved, index: i, ref: refStr, provider, modelId, record });
         continue;
       }
-      return { kind: "selected", model: resolved, index: i, ref: refStr };
+      checks.push({ ref: refStr, resolvedModel: resolved.id, status: "selected", reason: "модель доступна" });
+      return { kind: "selected", model: resolved, index: i, ref: refStr, checks, canary: false };
     } catch (err) {
       if (err instanceof ModelUnavailableError) {
-        lastError = err.message;
+        lastError = truncate(redactString(err.message), 300);
+        checks.push({ ref: refStr, resolvedModel: null, status: "unavailable", reason: lastError });
         continue;
       }
       throw err;
     }
   }
 
-  if (hasExhausted) {
-    const earliest = defaultCooldownTracker.getEarliestResetMs(checkedModels, now) ?? PROBE_SCHEDULE_MS[0] ?? 0;
-    return { kind: "exhausted", earliestResetMs: earliest };
+  // Если без cooldown цепочка полностью остановилась, разрешаем одну контролируемую проверку.
+  // claimProbe бронирует её до запуска запроса и не даёт задачам процесса дублировать canary.
+  const seenCooldowns = new Set<string>();
+  for (const candidate of cooldownCandidates) {
+    const key = candidate.record.modelId === null ? `${candidate.provider.toLowerCase()}/*` : `${candidate.provider.toLowerCase()}/${candidate.modelId.toLowerCase()}`;
+    if (seenCooldowns.has(key)) continue;
+    seenCooldowns.add(key);
+    if (!defaultCooldownTracker.claimProbe(candidate.record, now)) continue;
+    const check = checks.find((item) => item.ref === candidate.ref && item.resolvedModel === candidate.model.id);
+    if (check) {
+      check.status = "canary";
+      check.reason = "наступил срок контролируемой проверки cooldown";
+    }
+    return { kind: "selected", model: candidate.model, index: candidate.index, ref: candidate.ref, checks, canary: true };
   }
-  return { kind: "unavailable", error: lastError };
+
+  if (cooldownCandidates.length > 0) {
+    const unique = [...new Map(cooldownCandidates.map((c) => [c.record.modelId === null ? `${c.provider.toLowerCase()}/*` : `${c.provider.toLowerCase()}/${c.modelId.toLowerCase()}`, c.record])).values()];
+    const dueAt = Math.min(...unique.map((r) => Math.min(r.exhaustedUntil, defaultCooldownTracker.probeDueAt(r))));
+    const dueRecord = unique.find((r) => Math.min(r.exhaustedUntil, defaultCooldownTracker.probeDueAt(r)) === dueAt) ?? unique[0]!;
+    const wakeAtReset = dueAt >= dueRecord.exhaustedUntil;
+    return {
+      kind: "exhausted",
+      earliestResetMs: Math.max(0, dueAt - now),
+      resetKnown: wakeAtReset && defaultCooldownTracker.isResetKnown(dueRecord),
+      resetDetail: wakeAtReset ? (dueRecord.resetDetail ?? null) : null,
+      checks,
+    };
+  }
+  return { kind: "unavailable", error: lastError, checks };
 }
 
 /**
  * Срок cooldown: сначала точная проба провайдера, затем текст ошибки, иначе null —
  * и тогда трекер берёт следующий шаг графика проб.
  */
+async function recordModelChecks(core: EngineCore, checks: SupervisorModelCheck[]): Promise<void> {
+  await core.store.tasks.appendDirect(core.key, "supervisor.models_checked", "cli", { role: "supervisor", checks });
+}
+
+function modelChecksSummary(checks: SupervisorModelCheck[]): string {
+  const lines = checks.map((check) => {
+    const model = check.resolvedModel ? `${check.ref} → ${check.resolvedModel}` : check.ref;
+    if (check.status === "cooldown" && check.cooldown) {
+      const minutes = Math.max(1, Math.ceil(check.cooldown.remainingMs / 60_000));
+      return `• ${model} — ${check.cooldown.scope === "provider" ? "cooldown провайдера" : "cooldown модели"}, осталось ${minutes} мин`;
+    }
+    return `• ${model} — ${check.reason}`;
+  });
+  return `Supervisor не нашёл доступную модель:\n${lines.join("\n")}`;
+}
+
 async function resolveCooldownMs(core: EngineCore, provider: string, message: string): Promise<{ ms: number | null; detail: string | null }> {
   const now = core.clock.now().getTime();
   const probed = await core.providerReset?.(provider, now).catch(() => null);
@@ -134,8 +209,12 @@ async function switchToNextModel(
   const chain = mem.modelChain ?? [core.policy.spec.supervisor.model];
   const remainingChain = chain.slice((mem.modelChainIndex ?? 0) + 1);
   const selection = await selectSupervisorModel(core, remainingChain);
+  await recordModelChecks(core, selection.checks);
   if (selection.kind !== "selected") {
-    return { kind: "exhausted", error: selection.kind === "unavailable" ? selection.error : "все модели цепочки исчерпаны" };
+    return {
+      kind: "exhausted",
+      error: selection.kind === "unavailable" ? selection.error : modelChecksSummary(selection.checks),
+    };
   }
   const nextModel = selection.model;
   const spec = supervisorSessionSpec(core, nextModel);
@@ -200,15 +279,16 @@ async function scheduleSupervisorExhaustionWait(
   state: TaskState,
   dueAt: string,
   delayMs: number,
-  info: { what?: string; detail?: string | null } = {},
+  info: { what?: string; waitingFor?: string; detail?: string | null; resetKnown?: boolean; checks?: SupervisorModelCheck[] } = {},
 ): Promise<void> {
   const delayMinutes = Math.max(1, Math.ceil(delayMs / 60_000));
-  const resetKnown = info.detail !== null && info.detail !== undefined;
+  const resetKnown = info.resetKnown ?? (info.detail !== null && info.detail !== undefined);
   const what = info.what ?? "модели supervisor-а";
-  const waitingFor = `сброс лимита ${what}`;
-  const message = info.detail
+  const waitingFor = info.waitingFor ?? `сброс лимита ${what}`;
+  const baseMessage = info.detail
     ? `Лимит ${what} исчерпан (${info.detail}). Ожидание сброса лимита.`
-    : `Лимит ${what} исчерпан. Срок сброса провайдером не сообщён, следующая проверка по графику проб.`;
+    : `Нет доступной модели supervisor-а. Срок сброса провайдером не сообщён; следующая контролируемая проверка назначена по графику.`;
+  const message = info.checks?.length ? `${modelChecksSummary(info.checks)}\n\n${baseMessage}` : baseMessage;
   await core.store.tasks.commit(
     core.key,
     (s, c) => {
@@ -332,12 +412,20 @@ export async function startSupervisor(core: EngineCore, state: TaskState): Promi
     modelsConfig: core.store.modelsConfig,
   });
   const selection = await selectSupervisorModel(core, chain);
+  await recordModelChecks(core, selection.checks);
   if (selection.kind === "unavailable") {
-    return block(core, state, "MODEL_UNAVAILABLE", `модель supervisor-а ${core.policy.spec.supervisor.model} недоступна: ${selection.error}`);
+    return block(core, state, "MODEL_UNAVAILABLE", `${modelChecksSummary(selection.checks)}\nПоследняя ошибка: ${selection.error}`);
   }
   if (selection.kind === "exhausted") {
     const dueAt = new Date(core.clock.now().getTime() + selection.earliestResetMs).toISOString();
-    await scheduleSupervisorExhaustionWait(core, state, dueAt, selection.earliestResetMs);
+    const hasUnavailable = selection.checks.some((c) => c.status !== "cooldown");
+    await scheduleSupervisorExhaustionWait(core, state, dueAt, selection.earliestResetMs, {
+      what: "моделей supervisor-а",
+      ...(hasUnavailable ? { waitingFor: "доступную модель supervisor-а" } : {}),
+      detail: selection.resetKnown ? selection.resetDetail : null,
+      resetKnown: selection.resetKnown,
+      checks: selection.checks,
+    });
     return { kind: "waiting_recheck", dueAt };
   }
   const model = selection.model;
@@ -433,7 +521,7 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
       const [provider = "unknown", modelId = "unknown"] = ranWith.split("/");
       const scope = exhaustionScope(outcome.message);
       const { ms, detail } = await resolveCooldownMs(core, provider, outcome.message);
-      const record = defaultCooldownTracker.recordExhausted(provider, modelId, ms, outcome.message, core.clock.now().getTime(), { scope });
+      const record = defaultCooldownTracker.recordExhausted(provider, modelId, ms, outcome.message, core.clock.now().getTime(), { scope, resetDetail: detail });
       const resetAt = new Date(record.exhaustedUntil).toISOString();
       await core.store.tasks.appendDirect(core.key, "model.exhausted", "cli", {
         provider,
@@ -458,6 +546,7 @@ export async function awaitSupervisor(core: EngineCore, state: TaskState): Promi
       await scheduleSupervisorExhaustionWait(core, after, resetAt, waitMs, {
         what: scope === "provider" ? `провайдера ${provider}` : `модели ${ranWith || provider}`,
         detail,
+        resetKnown: ms !== null,
       });
       return { kind: "waiting_recheck", dueAt: resetAt };
     }

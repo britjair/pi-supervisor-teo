@@ -165,6 +165,151 @@ roles:
     }
   });
 
+  it("сохранённый cooldown OpenAI не мешает выбрать доступную Gemini и пишет диагностику цепочки", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T12:00:00.000Z"));
+    const now = Date.now();
+    const sb = await sandbox(DED, { process: "dev" });
+    await writeFile(
+      path.join(sb.home, ".pi", "teo", "models.md"),
+      `---
+schema: teo/v1
+roles:
+  supervisor:
+    - openai-codex/gpt-5.6-sol
+    - antigravity/gemini-3.8-flash-high
+    - default
+---
+`,
+    );
+    const runtime = new FakeAgentRuntime().script(
+      "sessions/supervisor.jsonl",
+      turn.tool("transition_stage", {
+        expectedStateVersion: "$expectedStateVersion",
+        to: "execute",
+        reason: "проверено Gemini",
+        evidenceRefs: ["artifact:plan.md"],
+      }),
+    );
+    const pi = new FakePi();
+    const host = new ExtensionHost(pi.api, sb.home, () => runtime);
+    host.register();
+    const ctx = fakeCtx(pi, { cwd: sb.project, ui: { answers: ["dev", "Описание", "Задача"] } });
+
+    await host.start(ctx, "T-1");
+    await pi.emit("before_agent_start", agentStartEvent("Начни"), ctx);
+    defaultCooldownTracker.recordExhausted("openai-codex", "gpt-5.6-sol", 4 * 60 * 60_000, "usage limit", now, {
+      scope: "provider",
+      resetDetail: "недельное окно",
+    });
+    try {
+      await writeFile(path.join(taskDir(sb), "artifacts", "plan.md"), "План\n");
+      await pi.callTool("report_result", { summary: "План готов", evidence: [{ kind: "artifact", value: "plan.md" }] });
+      await pi.emit("agent_before_settle", settleEvent([assistant("План готов")]), ctx);
+
+      expect((await state(sb)).stage).toBe("execute");
+      const opened = runtime.opened.filter((s) => s.file.endsWith("sessions/supervisor.jsonl"));
+      expect(opened.map((s) => s.model.id)).toEqual(["antigravity/gemini-3.8-flash-high"]);
+      const checked = (await events(sb)).find((e) => e.type === "supervisor.models_checked");
+      expect(checked?.payload.checks).toMatchObject([
+        { ref: "openai-codex/gpt-5.6-sol", status: "cooldown", resolvedModel: "openai-codex/gpt-5.6-sol" },
+        { ref: "antigravity/gemini-3.8-flash-high", status: "selected", resolvedModel: "antigravity/gemini-3.8-flash-high" },
+      ]);
+    } finally {
+      await host.detach();
+    }
+  });
+
+  it("смешанный cooldown/unavailable показывает причины, а не объявляет все модели исчерпанными", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T12:00:00.000Z"));
+    const now = Date.now();
+    const sb = await sandbox(DED, { process: "dev" });
+    await writeFile(path.join(sb.home, ".pi", "teo", "models.md"), `---
+schema: teo/v1
+roles:
+  supervisor:
+    - openai-codex/gpt-5.6-sol
+    - antigravity/gemini-missing
+---
+`);
+    const runtime = new FakeAgentRuntime({}, { unavailableModels: ["antigravity/gemini-missing"] });
+    const pi = new FakePi();
+    const host = new ExtensionHost(pi.api, sb.home, () => runtime);
+    host.register();
+    const ctx = fakeCtx(pi, { cwd: sb.project, ui: { answers: ["dev", "Описание", "Задача"] } });
+
+    await host.start(ctx, "T-1");
+    await pi.emit("before_agent_start", agentStartEvent("Начни"), ctx);
+    defaultCooldownTracker.recordExhausted("openai-codex", "gpt-5.6-sol", 4 * 60 * 60_000, "usage limit", now, {
+      scope: "provider",
+      resetDetail: "недельное окно",
+    });
+    try {
+      await writeFile(path.join(taskDir(sb), "artifacts", "plan.md"), "План\n");
+      await pi.callTool("report_result", { summary: "План готов", evidence: [{ kind: "artifact", value: "plan.md" }] });
+      const boundary = await pi.emit("agent_before_settle", settleEvent([assistant("План готов")]), ctx) as { continue?: boolean };
+
+      expect(boundary.continue).toBe(false);
+      const waiting = await state(sb);
+      expect(waiting.phase).toBe("waiting");
+      expect(waiting.wait?.waitingFor).toBe("доступную модель supervisor-а");
+      expect(waiting.wait?.message).toContain("openai-codex/gpt-5.6-sol");
+      expect(waiting.wait?.message).toContain("antigravity/gemini-missing");
+      expect(waiting.wait?.message).toContain("не найдена");
+      expect(ctx.fakeUi.status.get("teo")).toContain("нет доступной модели supervisor-а");
+      expect(ctx.fakeUi.notes).toContainEqual({ type: "warning", message: expect.stringContaining("gemini-missing") });
+    } finally {
+      await host.detach();
+    }
+  });
+
+  it("просроченная canary-проверка подтверждает доступность GPT и снимает cooldown без ручного reset", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T12:00:00.000Z"));
+    const now = Date.now();
+    const sb = await sandbox(DED, { process: "dev" });
+    await writeFile(path.join(sb.home, ".pi", "teo", "models.md"), `---
+schema: teo/v1
+roles:
+  supervisor:
+    - openai-codex/gpt-5.6-sol
+---
+`);
+    const runtime = new FakeAgentRuntime().script(
+      "sessions/supervisor.jsonl",
+      turn.tool("transition_stage", {
+        expectedStateVersion: "$expectedStateVersion",
+        to: "execute",
+        reason: "canary успешна",
+        evidenceRefs: ["artifact:plan.md"],
+      }),
+    );
+    const pi = new FakePi();
+    const host = new ExtensionHost(pi.api, sb.home, () => runtime);
+    host.register();
+    const ctx = fakeCtx(pi, { cwd: sb.project, ui: { answers: ["dev", "Описание", "Задача"] } });
+
+    await host.start(ctx, "T-1");
+    await pi.emit("before_agent_start", agentStartEvent("Начни"), ctx);
+    defaultCooldownTracker.recordExhausted("openai-codex", "gpt-5.6-sol", 4 * 60 * 60_000, "usage limit", now - 2 * 60 * 60_000, {
+      scope: "provider",
+      resetDetail: "недельное окно",
+    });
+    try {
+      await writeFile(path.join(taskDir(sb), "artifacts", "plan.md"), "План\n");
+      await pi.callTool("report_result", { summary: "План готов", evidence: [{ kind: "artifact", value: "plan.md" }] });
+      await pi.emit("agent_before_settle", settleEvent([assistant("План готов")]), ctx);
+
+      expect((await state(sb)).stage).toBe("execute");
+      expect(defaultCooldownTracker.isExhausted("openai-codex", "gpt-5.6-sol", now)).toBe(false);
+      const checked = (await events(sb)).find((e) => e.type === "supervisor.models_checked");
+      expect(checked?.payload.checks).toMatchObject([{ status: "canary", resolvedModel: "openai-codex/gpt-5.6-sol" }]);
+    } finally {
+      await host.detach();
+    }
+  });
+
   it("когда ВСЕ модели supervisor-а исчерпаны, задача переходит в waiting без блокировки", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-01T12:00:00.000Z"));

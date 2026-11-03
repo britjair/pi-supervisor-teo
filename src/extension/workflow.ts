@@ -142,6 +142,11 @@ export class ExtensionWorkflow {
     return this.core.policy;
   }
 
+  /** Фактическая модель текущего supervisor-цикла, включая fallback/canary. */
+  supervisorModel(): string | null {
+    return this.core.cycle?.modelUsed ?? null;
+  }
+
   /** Guard после report_*: синхронный признак для текущего logical run. */
   isReported(): boolean {
     return this.currentReportedRun !== null;

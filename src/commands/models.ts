@@ -46,6 +46,11 @@ export async function runModelsCooldown(ctx: AppContext, opts: { json?: boolean 
             remainingMs: Math.max(0, r.exhaustedUntil - now),
             attempt: r.attempt,
             probeSteps: PROBE_SCHEDULE_MS.length,
+            resetKnown: defaultCooldownTracker.isResetKnown(r),
+            resetDetail: r.resetDetail ?? null,
+            recordedAt: new Date(r.recordedAt).toISOString(),
+            lastProbeAt: r.lastProbeAt ? new Date(r.lastProbeAt).toISOString() : null,
+            nextProbeAt: new Date(defaultCooldownTracker.probeDueAt(r)).toISOString(),
             reason: r.reason,
           })),
         },
@@ -59,7 +64,7 @@ export async function runModelsCooldown(ctx: AppContext, opts: { json?: boolean 
     ctx.stdout.write(`${msg.models.noCooldowns}\n`);
     return ExitCode.ok;
   }
-  const rows = [[msg.models.colTarget, msg.models.colScope, msg.models.colUntil, msg.models.colRemaining, msg.models.colAttempt]];
+  const rows = [[msg.models.colTarget, msg.models.colScope, msg.models.colUntil, msg.models.colRemaining, msg.models.colAttempt, "Следующая проба"]];
   for (const r of records) {
     rows.push([
       r.modelId === null ? `${r.provider}/*` : `${r.provider}/${r.modelId}`,
@@ -67,6 +72,7 @@ export async function runModelsCooldown(ctx: AppContext, opts: { json?: boolean 
       new Date(r.exhaustedUntil).toISOString(),
       remainingText(r.exhaustedUntil - now),
       `${r.attempt}/${PROBE_SCHEDULE_MS.length}`,
+      new Date(defaultCooldownTracker.probeDueAt(r)).toISOString(),
     ]);
   }
   for (const line of table(rows)) ctx.stdout.write(`${line}\n`);
