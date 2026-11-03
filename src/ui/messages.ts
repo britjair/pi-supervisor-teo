@@ -243,6 +243,9 @@ export const msg = {
     modelFallback: (role: string, toModel: string, reason: string) => `teo: переключение роли «${role}» на резервную модель ${toModel} (${reason}).`,
     modelsExhaustedWaiting: (key: string, dueAt: string, remaining: string) =>
       `teo: ${key} · ⏳ ⚠ лимит моделей исчерпан · до ${dueAt} · осталось ${remaining}`,
+    /** Срок сброса неизвестен: показываем пробу, а не выдуманный обратный отсчёт */
+    modelsExhaustedProbe: (key: string, remaining: string) =>
+      `teo: ${key} · ⏳ ⚠ лимит моделей исчерпан · срок сброса не сообщён · проба через ${remaining}`,
     humanMessageSavedWaiting: (waitingFor: string, remaining: string) =>
       `teo: ответ зафиксирован в задаче. Ожидание: ${waitingFor} (осталось ${remaining}). Работа продолжится автоматически.`,
     humanMessageChatNotice: (text: string, waitingFor: string, remaining: string) =>
@@ -268,6 +271,23 @@ export const msg = {
     terminal: (key: string, stage: string) => `[teo] Задача ${key} завершена на этапе «${stage}».`,
     cancelled: (key: string, reason: string) => `[teo] Задача ${key} отменена. ${reason}`,
     blocked: (key: string, reason: string) => `[teo] Задача ${key} заблокирована. ${reason}`,
+  },
+
+  models: {
+    noCooldowns: "Активных cooldown-ов нет: все модели доступны.",
+    colTarget: "Модель",
+    colScope: "Область",
+    colUntil: "Доступна с",
+    colRemaining: "Осталось",
+    colAttempt: "Проба",
+    scopeProvider: "провайдер",
+    scopeModel: "модель",
+    cooldownFile: (p: string) => `Файл cooldown-ов: ${p}`,
+    badTarget: (v: string) => `Непонятная цель «${v}». Ожидается provider или provider/model.`,
+    resetNeedsTarget: "Укажите provider или provider/model, либо --all для сброса всех cooldown-ов.",
+    resetAllConflict: "--all нельзя совмещать с явной целью.",
+    resetNothing: "Нечего сбрасывать: подходящих cooldown-ов нет.",
+    resetDone: (n: number) => `Снято cooldown-ов: ${n}.`,
   },
 
   policyErrorTitle: "Ошибка конфигурации процесса",
@@ -301,6 +321,10 @@ export const msg = {
     cmdCancel: "отменить задачу",
     cmdRecover: "ручное восстановление задачи",
     cmdDoctor: "диагностика окружения, Policy и хранилища",
+    cmdModels: "модели и лимиты провайдеров",
+    cmdModelsCooldown: "активные cooldown-ы лимитов",
+    cmdModelsReset: "снять cooldown вручную",
+    argCooldownTarget: "provider или provider/model",
     argKey: "явный ключ задачи; в /teo start также Jira key или URL",
     optTitle: "название задачи",
     optDescriptionFile: "файл с описанием задачи",
@@ -599,6 +623,11 @@ export const msg = {
     piVersionMismatch: (sdk: string, cli: string) => `Версия Pi CLI (${cli}) отличается от SDK (${sdk})`,
     piModelOk: (ref: string, model: string) => `Модель ${ref} → ${model}, авторизация доступна`,
     piModelError: (ref: string) => `Модель ${ref} недоступна или не авторизована`,
+    supervisorProviderUnusable: (ref: string, model: string) =>
+      `Модель ${ref} → ${model} не может обслуживать supervisor и будет пропущена в его цепочке`,
+    supervisorProviderUnusableWhy: (provider: string) =>
+      `Провайдеру ${provider} нужен его собственный хук внутри вызывающей сессии, а сессия supervisor-а создаётся без расширений Pi.`,
+    supervisorProviderUnusableFix: "Для ролей этапов он работает штатно. Уберите его из роли supervisor в ~/.pi/teo/models.md.",
     projectRoot: (root: string, source: "git" | "cwd") =>
       `Проект ${root} (${source === "git" ? "корень git-репозитория" : "текущий каталог, git-репозиторий не найден"})`,
     projectAccess: "Права на чтение и запись каталога проекта",

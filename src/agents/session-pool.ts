@@ -15,8 +15,13 @@ export type ActiveRun = {
   timer: NodeJS.Timeout | null;
 };
 
+/** Чем открыта сессия: смена модели требует переоткрытия, иначе запрос уйдёт в прежнюю модель. */
+const openedWith = (spec: SessionSpec) => `${spec.model?.id ?? ""}#${spec.model?.thinking ?? "-"}`;
+
 export class SessionPool {
   private readonly sessions = new Map<string, AgentSessionHandle>();
+  /** file → модель, с которой сессия реально открыта */
+  private readonly models = new Map<string, string>();
   private readonly runs = new Map<string, ActiveRun>();
   /** Взятый через take() ход остаётся живым до завершения promise: stop обязан вызвать handle.abort(). */
   private readonly inFlight = new Set<ActiveRun>();
@@ -32,16 +37,37 @@ export class SessionPool {
     return this.sessions.has(file);
   }
 
+  /**
+   * Живая сессия для файла. Кеш учитывает модель: при её смене (fallback по цепочке) старая
+   * сессия закрывается и открывается новая на том же файле — транскрипт на диске сохраняется,
+   * как и при перезапуске процесса. Без этого spec.model молча игнорировался бы.
+   */
   async open(spec: SessionSpec): Promise<AgentSessionHandle> {
     const existing = this.sessions.get(spec.file);
-    if (existing) return existing;
+    if (existing) {
+      if (this.models.get(spec.file) === openedWith(spec)) return existing;
+      this.close(spec.file);
+    }
     const handle = await this.runtime.openSession(spec);
     handle.subscribe((e) => {
       if (e.type === "compaction" && e.phase === "end") this.compacted.add(spec.file);
       this.onEvent(spec.file, spec.role, e);
     });
     this.sessions.set(spec.file, handle);
+    this.models.set(spec.file, openedWith(spec));
     return handle;
+  }
+
+  /** Принудительно переоткрыть сессию файла (например, после ошибки модели). */
+  async reopen(spec: SessionSpec): Promise<AgentSessionHandle> {
+    this.close(spec.file);
+    return this.open(spec);
+  }
+
+  /** Модель, с которой сейчас открыта сессия файла. */
+  openedModel(file: string): string | null {
+    const key = this.models.get(file);
+    return key ? (key.split("#")[0] ?? null) : null;
   }
 
   /** Сбросить флаг compaction: полный текст Policy снова показан. */
@@ -104,11 +130,13 @@ export class SessionPool {
   close(file: string): void {
     this.sessions.get(file)?.dispose();
     this.sessions.delete(file);
+    this.models.delete(file);
   }
 
   async dispose(): Promise<void> {
     for (const h of this.sessions.values()) h.dispose();
     this.sessions.clear();
+    this.models.clear();
     this.runs.clear();
     this.inFlight.clear();
   }

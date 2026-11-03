@@ -7,6 +7,7 @@ import { createInteractiveHumanIO } from "./ui/interactive-human-io.js";
 import { runCancel } from "./commands/cancel.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runHistory } from "./commands/history.js";
+import { runModelsCooldown, runModelsReset } from "./commands/models.js";
 import { runInteractive } from "./commands/interactive.js";
 import { runNew } from "./commands/new.js";
 import { runRecover } from "./commands/recover.js";
@@ -206,6 +207,21 @@ export async function main(argv: readonly string[]): Promise<number> {
     .description(msg.cli.cmdDoctor)
     .option("--fix", msg.cli.optFix)
     .action(run((ctx, cmd) => runDoctor(ctx, { fix: cmd.opts<{ fix?: boolean }>().fix === true })));
+
+  const models = program.command("models").description(msg.cli.cmdModels);
+
+  models
+    .command("cooldown")
+    .description(msg.cli.cmdModelsCooldown)
+    .option("--json", msg.cli.json)
+    .action(run((ctx, cmd) => runModelsCooldown(ctx, { json: cmd.opts<{ json?: boolean }>().json === true })));
+
+  models
+    .command("reset")
+    .description(msg.cli.cmdModelsReset)
+    .argument("[TARGET]", msg.cli.argCooldownTarget)
+    .option("--all", msg.cli.optAll)
+    .action(run((ctx, cmd) => runModelsReset(ctx, cmd.args[0], { all: cmd.opts<{ all?: boolean }>().all === true })));
 
   try {
     await program.parseAsync([...argv]);

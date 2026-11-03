@@ -5,6 +5,7 @@ import { startCommand, type AppContext } from "../app.js";
 import { ExitCode, UsageError } from "../errors/errors.js";
 import type { ProjectStore } from "../state/project-store.js";
 import { PlainReporter } from "../ui/plain/plain-reporter.js";
+import { codexResetProbe } from "../util/codex-usage.js";
 import { setInterruptHandler } from "../util/interrupts.js";
 import { Engine } from "../workflow/engine.js";
 import { RECOVER_ONLY_CODES, unblockTask } from "../workflow/manual.js";
@@ -44,6 +45,7 @@ export async function executeTask(ctx: AppContext, store: ProjectStore, key: str
         ...(waitControl ? { waitControl } : {}),
         clock: ctx.clock,
         ids: ctx.ids, exec: ctx.exec, style: ctx.style, faults: ctx.faults, lockSignal: lock.signal,
+        providerReset: codexResetProbe(ctx.homeDir),
         options: { noWait: options.noWait ?? false, checkNow: options.checkNow ?? false },
         confirmPolicy: ctx.human ? async (change) => ctx.human!.confirm(`Policy изменилась (${change.fromHash} → ${change.toHash}). Применить новую версию?`, false) : null,
       });

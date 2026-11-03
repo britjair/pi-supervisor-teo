@@ -136,7 +136,7 @@ export function applyEffects(
       return {
         ...base,
         phase: "waiting",
-        wait: { decisionId: d.decisionId, number, waitingFor: i.waitingFor, message: i.message, delayMinutes: i.delayMinutes, scheduledAt: c.now, dueAt, targetPhase: null },
+        wait: { decisionId: d.decisionId, number, waitingFor: i.waitingFor, message: i.message, delayMinutes: i.delayMinutes, scheduledAt: c.now, dueAt, targetPhase: null, resetKnown: true },
         stageRechecks: { ...state.stageRechecks, count: number, firstScheduledAt: state.stageRechecks.firstScheduledAt ?? c.now },
       };
     }

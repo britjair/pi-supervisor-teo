@@ -90,6 +90,8 @@ export const taskStateSchema = z.object({
       scheduledAt: iso,
       dueAt: iso,
       targetPhase: z.enum(["agent_pending", "supervisor_pending"]).nullable().default(null),
+      /** Ожидание лимита: dueAt — названный провайдером срок сброса, а не следующая проба */
+      resetKnown: z.boolean().default(true),
     })
     .nullable(),
   supervisor: z.object({
