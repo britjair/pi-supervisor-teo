@@ -69,6 +69,8 @@ export interface EngineCore {
   /** Текущая Policy: обновляется policy gate */
   policy: LoadedPolicy;
   cycle: CycleMemory | null;
+  /** Однократно проигнорировать nextProbeAt для cooldown-модели (/teo continue). */
+  forceModelProbe: boolean;
   /** Файлы сессий, в которых агент уже отчитался в текущем prompt-цикле (guard «после отчёта») */
   readonly reported: Set<string>;
 

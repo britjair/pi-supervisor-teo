@@ -102,6 +102,16 @@ async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise
       }
       const record = defaultCooldownTracker.activeRecord(provider, modelId, now);
       if (record) {
+        if (core.forceModelProbe && defaultCooldownTracker.claimProbe(record, now, true)) {
+          core.forceModelProbe = false;
+          checks.push({
+            ref: refStr,
+            resolvedModel: resolved.id,
+            status: "canary",
+            reason: "принудительная проверка по /teo continue",
+          });
+          return { kind: "selected", model: resolved, index: i, ref: refStr, checks, canary: true };
+        }
         const resetKnown = defaultCooldownTracker.isResetKnown(record);
         const nextProbeAt = defaultCooldownTracker.probeDueAt(record);
         const scope = record.modelId === null ? "provider" : "model";
@@ -122,6 +132,7 @@ async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise
         cooldownCandidates.push({ model: resolved, index: i, ref: refStr, provider, modelId, record });
         continue;
       }
+      core.forceModelProbe = false;
       checks.push({ ref: refStr, resolvedModel: resolved.id, status: "selected", reason: "модель доступна" });
       return { kind: "selected", model: resolved, index: i, ref: refStr, checks, canary: false };
     } catch (err) {
@@ -155,6 +166,7 @@ async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise
     const dueAt = Math.min(...unique.map((r) => Math.min(r.exhaustedUntil, defaultCooldownTracker.probeDueAt(r))));
     const dueRecord = unique.find((r) => Math.min(r.exhaustedUntil, defaultCooldownTracker.probeDueAt(r)) === dueAt) ?? unique[0]!;
     const wakeAtReset = dueAt >= dueRecord.exhaustedUntil;
+    core.forceModelProbe = false;
     return {
       kind: "exhausted",
       earliestResetMs: Math.max(0, dueAt - now),
@@ -163,6 +175,7 @@ async function selectSupervisorModel(core: EngineCore, chain: string[]): Promise
       checks,
     };
   }
+  core.forceModelProbe = false;
   return { kind: "unavailable", error: lastError, checks };
 }
 

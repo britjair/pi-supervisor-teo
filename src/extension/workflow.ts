@@ -58,6 +58,7 @@ class ExtensionCore implements EngineCore {
   readonly providerReset: ProviderResetProbe;
   readonly reported = new Set<string>();
   cycle: CycleMemory | null = null;
+  forceModelProbe = false;
 
   constructor(
     readonly key: string,
@@ -399,11 +400,16 @@ export class ExtensionWorkflow {
     return state;
   }
 
-  async finishWaiting(): Promise<TaskState> {
+  async finishWaiting(reason: "due" | "skipped_by_human" = "due"): Promise<TaskState> {
     const state = await this.core.store.tasks.load(this.core.key);
     if (state.phase !== "waiting") return state;
-    await finishWait(this.core, state, "due");
+    await finishWait(this.core, state, reason);
     return this.core.store.tasks.load(this.core.key);
+  }
+
+  /** Следующий выбор supervisor-модели принудительно проверит первую cooldown-позицию. */
+  forceSupervisorModelProbe(): void {
+    this.core.forceModelProbe = true;
   }
 
   async waitingHumanMessage(text: string): Promise<TaskState> {

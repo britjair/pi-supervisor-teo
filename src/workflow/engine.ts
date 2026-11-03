@@ -88,6 +88,7 @@ export class Engine implements EngineCore {
   readonly reported = new Set<string>();
   policy: LoadedPolicy;
   cycle: CycleMemory | null = null;
+  forceModelProbe = false;
 
   private readonly controller = new AbortController();
   private readonly sleeper: (ms: number, signal: AbortSignal) => Promise<void>;

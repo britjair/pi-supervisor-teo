@@ -63,6 +63,11 @@ export type EventPayloads = {
   "session.next_requested": { sessionId: string; stage: string };
   "supervision.paused": { sessionId: string };
   "supervision.resumed": { sessionId: string };
+  "supervision.continued": {
+    sessionId: string;
+    fromPhase: string;
+    mode: "recheck" | "forced_model_probe" | "resume" | "apply_decision";
+  };
   "stage.transitioned": {
     from: string;
     to: string;
