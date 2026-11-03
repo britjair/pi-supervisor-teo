@@ -110,6 +110,19 @@ export type EventPayloads = {
     /** Номер попытки в графике проб */
     attempt?: number;
   };
+  "agent.model_wait_scheduled": {
+    role: string;
+    provider: string;
+    modelId: string;
+    dueAt: string;
+    resetKnown: boolean;
+  };
+  "agent.model_probe_started": {
+    role: string;
+    provider: string;
+    modelId: string;
+    forcedBy: "timer" | "continue";
+  };
   /** `applied: false` — переключение не состоялось, запрос ушёл бы в старую модель */
   "model.fallback": {
     role: string;

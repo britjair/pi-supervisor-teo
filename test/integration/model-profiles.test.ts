@@ -8,6 +8,7 @@ import { FakeAgentRuntime, turn } from "../../src/agents/fake/fake-runtime.js";
 import type { TaskEvent } from "../../src/domain/events.js";
 import type { TaskState } from "../../src/domain/task-state.js";
 import { ExtensionHost } from "../../src/extension/host.js";
+import type { ProjectStore } from "../../src/state/project-store.js";
 import { defaultCooldownTracker } from "../../src/util/model-exhaustion.js";
 import { resetUnusableSupervisorModels } from "../../src/workflow/supervisor-step.js";
 import { agentStartEvent, fakeCtx, FakePi, settleEvent } from "../helpers/fake-pi.js";
@@ -525,9 +526,152 @@ roles:
       expect(boundary.continue).toBe(true);
       expect(defaultCooldownTracker.isExhausted("claude-bridge", "claude-opus-5")).toBe(true);
       expect(pi.model).toMatchObject({ provider: "antigravity", id: "gemini-3.8-flash-high" });
+      expect(await state(sb)).toMatchObject({ phase: "agent_running", currentRun: { attempt: 2 } });
+      expect((await events(sb)).filter((e) => e.type === "supervisor.started")).toHaveLength(0);
       const exhausted = (await events(sb)).find((e) => e.type === "model.exhausted");
       expect(exhausted?.payload).toMatchObject({ provider: "claude-bridge", modelId: "claude-opus-5", role: "explorer", scope: "provider", resetKnown: true });
       expect(ctx.fakeUi.notes).toContainEqual({ type: "warning", message: expect.stringContaining("поставлена на cooldown") });
+    } finally {
+      await host.detach();
+    }
+  });
+
+  it("если вся stage-chain в cooldown, ждёт ближайшую модель без stage.recheck и /teo continue запускает forced canary", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-03T19:00:00.000Z"));
+    const sb = await sandbox(DED, { process: "dev" });
+    await writeFile(path.join(sb.home, ".pi", "teo", "models.md"), `---
+schema: teo/v1
+roles:
+  explorer:
+    - claude-bridge/claude-opus-5
+    - openai-codex/gpt-5.6-sol
+    - antigravity/gemini-3.8-flash-high
+  supervisor:
+    - fake/supervisor
+---
+`);
+    const runtime = new FakeAgentRuntime().script(
+      "sessions/supervisor.jsonl",
+      turn.tool("continue_current_agent", {
+        expectedStateVersion: "$expectedStateVersion",
+        message: "Canary успешна, продолжай этап",
+      }),
+    );
+    const pi = new FakePi();
+    pi.model = { provider: "claude-bridge", id: "claude-opus-5" };
+    const host = new ExtensionHost(pi.api, sb.home, () => runtime);
+    host.register();
+    const models = [
+      { provider: "claude-bridge", id: "claude-opus-5", name: "Claude Opus 5" },
+      { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT 5.6 Sol" },
+      { provider: "antigravity", id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash High" },
+    ];
+    const ctx = fakeCtx(pi, { cwd: sb.project, models, ui: { answers: ["dev", "Описание", "Задача"] } });
+
+    await host.start(ctx, "T-1");
+    await pi.emit("before_agent_start", agentStartEvent("Начни"), ctx);
+    try {
+      const now = Date.now();
+      defaultCooldownTracker.recordExhausted("openai-codex", "gpt-5.6-sol", 2 * 60 * 60_000, "usage limit", now, { scope: "provider" });
+      defaultCooldownTracker.recordExhausted("antigravity", "gemini-3.8-flash-high", 30 * 60_000, "quota exceeded", now, { scope: "provider" });
+      const boundary = await pi.emit("agent_before_settle", settleEvent([{
+        role: "assistant",
+        content: [{ type: "text", text: "You've hit your session limit" }],
+        stopReason: "error",
+        errorMessage: "Claude subscription rate limit reached (five_hour) — resets at 8:00:00 PM",
+        usage: { input: 0, output: 0, cost: { total: 0 } },
+      }], "error"), ctx) as { continue?: boolean };
+
+      expect(boundary.continue).toBe(false);
+      expect(await state(sb)).toMatchObject({
+        status: "active",
+        phase: "waiting",
+        stageRechecks: { count: 0, waitedMinutes: 0, firstScheduledAt: null },
+        wait: {
+          kind: "agent_model_cooldown",
+          targetPhase: "agent_pending",
+          dueAt: "2026-11-03T19:30:00.000Z",
+          modelCooldown: { role: "explorer", provider: "antigravity", modelId: "gemini-3.8-flash-high" },
+        },
+      });
+      expect((await events(sb)).filter((e) => e.type === "supervisor.started")).toHaveLength(0);
+
+      await host.continueNow(ctx);
+      expect(await state(sb)).toMatchObject({ phase: "agent_pending", wait: null, stageRechecks: { count: 0, waitedMinutes: 0 } });
+      await pi.emit("before_agent_start", agentStartEvent("Forced canary"), ctx);
+
+      expect(pi.model).toMatchObject({ provider: "antigravity", id: "gemini-3.8-flash-high" });
+      expect((await events(sb)).find((e) => e.type === "agent.model_probe_started")?.payload).toMatchObject({
+        role: "explorer",
+        provider: "antigravity",
+        modelId: "gemini-3.8-flash-high",
+        forcedBy: "continue",
+      });
+
+      await pi.emit("agent_before_settle", settleEvent([assistant("Canary ответила успешно")]), ctx);
+      expect(defaultCooldownTracker.isExhausted("antigravity", "gemini-3.8-flash-high")).toBe(false);
+    } finally {
+      await host.detach();
+    }
+  });
+
+  it("technical wait по таймеру запускает ровно одну forced canary stage-модели", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-03T19:30:00.000Z"));
+    const sb = await sandbox(DED, { process: "dev" });
+    await writeFile(path.join(sb.home, ".pi", "teo", "models.md"), `---
+schema: teo/v1
+roles:
+  explorer:
+    - antigravity/gemini-3.8-flash-high
+---
+`);
+    const pi = new FakePi();
+    pi.model = { provider: "openai-codex", id: "user-default" };
+    const host = new ExtensionHost(pi.api, sb.home, () => new FakeAgentRuntime());
+    host.register();
+    const models = [{ provider: "antigravity", id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash High" }];
+    const ctx = fakeCtx(pi, { cwd: sb.project, models, ui: { answers: ["dev", "Описание", "Задача"] } });
+    await host.start(ctx, "T-1");
+    await pi.emit("before_agent_start", agentStartEvent("Начни"), ctx);
+    try {
+      defaultCooldownTracker.recordExhausted("antigravity", "gemini-3.8-flash-high", 60_000, "quota exceeded", Date.now(), { scope: "provider" });
+      const current = await state(sb);
+      const internal = host as unknown as {
+        binding: { store: ProjectStore };
+        fireWaitTimer: (binding: unknown, context: typeof ctx) => Promise<void>;
+      };
+      await internal.binding.store.tasks.commit("T-1", (s) => ({
+        ...s,
+        phase: "waiting",
+        currentRun: s.currentRun ? { ...s.currentRun, status: "failed", settleReason: "runtime_error", finishedAt: new Date().toISOString() } : null,
+        wait: {
+          kind: "agent_model_cooldown",
+          modelCooldown: { role: "explorer", provider: "antigravity", modelId: "gemini-3.8-flash-high" },
+          decisionId: "technical-wait",
+          number: 1,
+          waitingFor: "сброс лимита stage-модели",
+          message: "Проверь модель после cooldown",
+          delayMinutes: 0,
+          scheduledAt: new Date(Date.now() - 60_000).toISOString(),
+          dueAt: new Date().toISOString(),
+          targetPhase: "agent_pending",
+          resetKnown: true,
+        },
+      }), { expectedVersion: current.version });
+
+      await internal.fireWaitTimer(internal.binding, ctx);
+      expect(await state(sb)).toMatchObject({ phase: "agent_pending", wait: null, nextAgentInput: { kind: "restart" } });
+      await pi.emit("before_agent_start", agentStartEvent("Timer canary"), ctx);
+
+      expect(pi.model).toMatchObject({ provider: "antigravity", id: "gemini-3.8-flash-high" });
+      expect((await events(sb)).find((e) => e.type === "agent.model_probe_started")?.payload).toMatchObject({
+        role: "explorer",
+        provider: "antigravity",
+        modelId: "gemini-3.8-flash-high",
+        forcedBy: "timer",
+      });
     } finally {
       await host.detach();
     }

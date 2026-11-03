@@ -354,6 +354,95 @@ export class ExtensionWorkflow {
     return this.core.store.tasks.load(this.core.key);
   }
 
+  /**
+   * Quota stage-модели — инфраструктурное восстановление без supervisor-а.
+   * После settleOnly state находится в supervisor_pending; переводим его либо в новый ход
+   * агента на fallback, либо в техническое ожидание ближайшей canary.
+   */
+  async recoverAgentModelExhaustion(options: {
+    role: string;
+    fromProvider: string;
+    fromModelId: string;
+    fallback: { provider: string; modelId: string; name: string } | null;
+    wait: { provider: string; modelId: string; dueAt: string; resetKnown: boolean } | null;
+  }): Promise<TaskState> {
+    const state = await this.core.store.tasks.load(this.core.key);
+    if (state.phase !== "supervisor_pending" || !state.currentRun) return state;
+    if (options.fallback) {
+      return this.core.store.tasks.commit(this.core.key, (s, c) => {
+        c.emit("model.fallback", "cli", {
+          role: options.role,
+          fromModel: `${options.fromProvider}/${options.fromModelId}`,
+          toModel: `${options.fallback?.provider}/${options.fallback?.modelId}`,
+          reason: "лимит stage-модели; автоматический fallback без supervisor-а",
+          applied: true,
+          cause: "exhausted",
+        });
+        return {
+          ...s,
+          status: "active",
+          phase: "agent_pending",
+          nextAgentInput: {
+            kind: "restart",
+            message: `Предыдущая модель исчерпала лимит. Продолжи этап на резервной модели ${options.fallback?.name ?? options.fallback?.modelId}.`,
+            decisionId: null,
+          },
+          supervisor: { ...s.supervisor, trigger: null },
+        };
+      }, { expectedVersion: state.version });
+    }
+    if (!options.wait) return state;
+    const now = this.core.clock.now();
+    const due = new Date(options.wait.dueAt);
+    const delayMinutes = Math.max(0, (due.getTime() - now.getTime()) / 60_000);
+    const decisionId = this.core.ids.next();
+    return this.core.store.tasks.commit(this.core.key, (s, c) => {
+      c.emit("agent.model_wait_scheduled", "cli", {
+        role: options.role,
+        provider: options.wait?.provider ?? "unknown",
+        modelId: options.wait?.modelId ?? "unknown",
+        dueAt: options.wait?.dueAt ?? c.now,
+        resetKnown: options.wait?.resetKnown ?? false,
+      });
+      c.emit("wait.scheduled", "cli", {
+        decisionId,
+        number: 1,
+        maxCount: 0,
+        waitingFor: `сброс лимита модели роли ${options.role}: ${options.wait?.provider}/${options.wait?.modelId}`,
+        delayMinutes,
+        dueAt: options.wait?.dueAt ?? c.now,
+        resetKnown: options.wait?.resetKnown ?? false,
+      });
+      return {
+        ...s,
+        status: "active",
+        phase: "waiting",
+        wait: {
+          kind: "agent_model_cooldown",
+          modelCooldown: {
+            role: options.role,
+            provider: options.wait?.provider ?? "unknown",
+            modelId: options.wait?.modelId ?? "unknown",
+          },
+          decisionId,
+          number: 1,
+          waitingFor: `сброс лимита модели роли ${options.role}: ${options.wait?.provider}/${options.wait?.modelId}`,
+          message: `Повтори этап после технического ожидания модели ${options.wait?.provider}/${options.wait?.modelId}.`,
+          delayMinutes,
+          scheduledAt: c.now,
+          dueAt: options.wait?.dueAt ?? c.now,
+          targetPhase: "agent_pending",
+          resetKnown: options.wait?.resetKnown ?? false,
+        },
+        supervisor: { ...s.supervisor, trigger: null },
+      };
+    }, { expectedVersion: state.version });
+  }
+
+  async recordAgentModelProbe(options: { role: string; provider: string; modelId: string; forcedBy: "timer" | "continue" }): Promise<void> {
+    await this.core.store.tasks.appendDirect(this.core.key, "agent.model_probe_started", "cli", options);
+  }
+
   /** agent_running → supervisor → decision applied. */
   async settleAndSupervise(event: AgentBeforeSettleEvent): Promise<SupervisorResult> {
     const state = await this.settleOnly(event);

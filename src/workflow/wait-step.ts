@@ -31,6 +31,7 @@ export async function finishWait(core: EngineCore, state: TaskState, reason: "du
   const wait = state.wait;
   if (!wait) return;
   const targetPhase = wait.targetPhase ?? "agent_pending";
+  const technical = wait.kind === "agent_model_cooldown" || wait.kind === "supervisor_model_cooldown";
   await core.store.tasks.commit(
     core.key,
     (s, c) => {
@@ -42,7 +43,7 @@ export async function finishWait(core: EngineCore, state: TaskState, reason: "du
           status: "active",
           phase: "supervisor_pending",
           supervisor: { ...s.supervisor, trigger: { kind: "reevaluate", ref: null } },
-          stageRechecks: { ...s.stageRechecks, waitedMinutes: s.stageRechecks.waitedMinutes + waited },
+          stageRechecks: technical ? s.stageRechecks : { ...s.stageRechecks, waitedMinutes: s.stageRechecks.waitedMinutes + waited },
           wait: null,
         };
       }
@@ -50,8 +51,12 @@ export async function finishWait(core: EngineCore, state: TaskState, reason: "du
         ...s,
         status: "active",
         phase: "agent_pending",
-        nextAgentInput: { kind: "recheck", message: wait.message, decisionId: wait.decisionId },
-        stageRechecks: { ...s.stageRechecks, waitedMinutes: s.stageRechecks.waitedMinutes + waited },
+        nextAgentInput: {
+          kind: wait.kind === "agent_model_cooldown" ? "restart" : technical ? "recovery" : "recheck",
+          message: wait.message,
+          decisionId: wait.decisionId,
+        },
+        stageRechecks: technical ? s.stageRechecks : { ...s.stageRechecks, waitedMinutes: s.stageRechecks.waitedMinutes + waited },
         wait: null,
       };
     },
